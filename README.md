@@ -1,6 +1,5 @@
 # PathTracer
-Path tracer for Summer research
-with CUDA and OpenGL
+Path tracer with CUDA and OpenGL for Summer research
 
 Reference:
 https://github.com/HarryPyc/Raytracer-in-CUDA
