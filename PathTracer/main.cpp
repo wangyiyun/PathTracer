@@ -1,11 +1,9 @@
 #include <windows.h>
-
+// OpenGL
 #include <GL/glew.h>
-
 #include <GL/freeglut.h>
-
 #include <GL/gl.h>
-
+// OpenGL math lib
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/transform.hpp>
@@ -13,26 +11,33 @@
 
 #include <iostream>
 
-#include "InitShader.h"
-#include "LoadMesh.h"
-#include "LoadTexture.h"
-#include "imgui_impl_glut.h"
+// may used later when import mesh object
+//#include "LoadMesh.h"
+//#include "LoadTexture.h"
+//#include "imgui_impl_glut.h"
 
 #include "cuda_gl_interop.h"
 
 #include "cutil_math.h"
 
-const int width = 1280;
-const int height = 720;
-unsigned int frame = 0;
 
-GLuint pbo = 1;
-GLuint textureID = 1;
-struct cudaGraphicsResource* resource;
+const int width = 1280;	// width of the figure
+const int height = 720;	// height of the figure
+unsigned int frame = 0;	// a frame counter, used as a random seed
 
+// For OpenGL
+GLuint pbo = 1;	// pxiel buffer object, place for OpenGL and CUDA to switch data and display the result
+GLuint textureID = 1;	// OpenGL texture to display the result
+
+// For CUDA
+struct cudaGraphicsResource* resource;	// pointer to the teturned object handle
+uchar4* dptr;	// place for CUDA output
+float3* accu;	// place for accumulate all frame result
+
+// Implement of this function is in kernel.cu
 extern "C" void launch_kernel(uchar4*, float3*, unsigned int, unsigned int, unsigned int);
 
-
+// create pixel buffer object in OpenGL
 void createPBO(GLuint *pbo)
 {
 	if (pbo)
@@ -46,9 +51,11 @@ void createPBO(GLuint *pbo)
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, *pbo);
 		glBufferData(GL_PIXEL_UNPACK_BUFFER, size_tex_data, NULL, GL_DYNAMIC_COPY);
 
+		// 
 		cudaGraphicsGLRegisterBuffer(&resource, *pbo, cudaGraphicsMapFlagsWriteDiscard);
 	}
 }
+// create texture in OpenGL
 void createTexture(GLuint *textureID, unsigned int size_x, unsigned int size_y)
 {
 	glEnable(GL_TEXTURE_2D);
@@ -61,8 +68,7 @@ void createTexture(GLuint *textureID, unsigned int size_x, unsigned int size_y)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
-uchar4* dptr;
-float3* accu;
+
 void runCuda()
 {
 	size_t num_bytes;
@@ -77,7 +83,9 @@ void runCuda()
 
 
 // glut display callback function.
-// This function gets called every time the scene gets redisplayed 
+// This function gets called every time the scene gets redisplayed
+// which means it runs only when some events happen, such as mouse clicked
+// so currently it won't be used
 void display()
 {
 	
@@ -86,12 +94,13 @@ void display()
 
 
 // glut idle callback.
-//This function gets called between frames
+// idle function gets called between frames
+// which means it runs every frame automatically 
 void idle()
 {
-	frame++;
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	runCuda();
+	frame++;	// accumulate frame number
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);	// clear current display result on the screen
+	runCuda();	// run CUDA program and calculate current frame result
 
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 
@@ -100,6 +109,7 @@ void idle()
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
 		GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
+	// draw a quadrangle as large as the window
 	glBegin(GL_QUADS);
 	glTexCoord2f(0.0f, 1.0f); glVertex3f(0.0f, 0.0f, 0.0f);
 	glTexCoord2f(0.0f, 0.0f); glVertex3f(0.0f, 1.0f, 0.0f);
@@ -113,17 +123,24 @@ void idle()
 
 
 // Display info about the OpenGL implementation provided by the graphics driver.
-// Your version should be > 4.0 for CGT 521 
 void printGlInfo()
 {
 	std::cout << "Vendor: " << glGetString(GL_VENDOR) << std::endl;
 	std::cout << "Renderer: " << glGetString(GL_RENDERER) << std::endl;
 	std::cout << "Version: " << glGetString(GL_VERSION) << std::endl;
 	std::cout << "GLSL Version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
+	int X, Y, Z, total;
+	glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &X);
+	glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &Y);
+	glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &Z);
+	glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &total);
+	std::cout << "Max Compute Work Group Size: " << X << " " << Y << " " << Z << std::endl;
+	std::cout << "Max Compute Work Group Invocations: " << total << std::endl;
 }
 
 void initCuda()
 {
+	// register accu buffer, this buffer won't refresh
 	cudaMalloc(&accu, width * height * sizeof(float3));
 	createPBO(&pbo);
 	createTexture(&textureID, width, height);
@@ -153,7 +170,7 @@ void initOpenGl()
 // glut callbacks need to send keyboard and mouse events to imgui
 void keyboard(unsigned char key, int x, int y)
 {
-	ImGui_ImplGlut_KeyCallback(key);
+	//ImGui_ImplGlut_KeyCallback(key);
 	std::cout << "key : " << key << ", x: " << x << ", y: " << y << std::endl;
 
 	switch (key)
@@ -162,35 +179,35 @@ void keyboard(unsigned char key, int x, int y)
 		break;
 	}
 }
-
+// some callback functions here
 void keyboard_up(unsigned char key, int x, int y)
 {
-	ImGui_ImplGlut_KeyUpCallback(key);
+	//ImGui_ImplGlut_KeyUpCallback(key);
 }
 
 void special_up(int key, int x, int y)
 {
-	ImGui_ImplGlut_SpecialUpCallback(key);
+	//ImGui_ImplGlut_SpecialUpCallback(key);
 }
 
 void passive(int x, int y)
 {
-	ImGui_ImplGlut_PassiveMouseMotionCallback(x, y);
+	//ImGui_ImplGlut_PassiveMouseMotionCallback(x, y);
 }
 
 void special(int key, int x, int y)
 {
-	ImGui_ImplGlut_SpecialCallback(key);
+	//ImGui_ImplGlut_SpecialCallback(key);
 }
 
 void motion(int x, int y)
 {
-	ImGui_ImplGlut_MouseMotionCallback(x, y);
+	//ImGui_ImplGlut_MouseMotionCallback(x, y);
 }
 
 void mouse(int button, int state, int x, int y)
 {
-	ImGui_ImplGlut_MouseButtonCallback(button, state);
+	//ImGui_ImplGlut_MouseButtonCallback(button, state);
 }
 
 
@@ -202,8 +219,6 @@ int main(int argc, char **argv)
 	glutInitWindowPosition(5, 5);
 	glutInitWindowSize(width, height);
 	int win = glutCreateWindow("Path Tracer");
-
-	printGlInfo();
 
 	//Register callback functions with glut. 
 	glutDisplayFunc(display);
@@ -220,7 +235,9 @@ int main(int argc, char **argv)
 	
 	initOpenGl();
 	initCuda();
-	ImGui_ImplGlut_Init(); // initialize the imgui system
+	//ImGui_ImplGlut_Init(); // initialize the imgui system
+
+	printGlInfo();
 
 	//Enter the glut event loop.
 	glutMainLoop();
