@@ -19,6 +19,8 @@
 #include "cuda_gl_interop.h"
 
 #include "cutil_math.h"
+#include <curand.h>
+#include <curand_kernel.h>
 
 
 const int width = 1280;	// width of the figure
@@ -33,9 +35,10 @@ GLuint textureID = 1;	// OpenGL texture to display the result
 struct cudaGraphicsResource* resource;	// pointer to the teturned object handle
 uchar4* dptr;	// place for CUDA output
 float3* accu;	// place for accumulate all frame result
+curandState* randState;
 
 // Implement of this function is in kernel.cu
-extern "C" void launch_kernel(uchar4*, float3*, unsigned int, unsigned int, unsigned int);
+extern "C" void launch_kernel(uchar4*, float3*, curandState*, unsigned int, unsigned int, unsigned int);
 
 // create pixel buffer object in OpenGL
 void createPBO(GLuint *pbo)
@@ -76,7 +79,7 @@ void runCuda()
 	cudaGraphicsMapResources(1, &resource, 0);
 	cudaGraphicsResourceGetMappedPointer((void**)&dptr, &num_bytes, resource);
 
-	launch_kernel(dptr, accu, width, height, frame);
+	launch_kernel(dptr, accu, randState, width, height, frame);
 
 	cudaGraphicsUnmapResources(1, &resource, 0);
 }
@@ -142,6 +145,7 @@ void initCuda()
 {
 	// register accu buffer, this buffer won't refresh
 	cudaMalloc(&accu, width * height * sizeof(float3));
+	cudaMalloc(&randState, width * height * sizeof(curandState));
 	createPBO(&pbo);
 	createTexture(&textureID, width, height);
 	runCuda();
@@ -246,6 +250,7 @@ int main(int argc, char **argv)
 
 	cudaFree(dptr);
 	cudaFree(accu);
+	cudaFree(randState);
 
 	return 0;
 }

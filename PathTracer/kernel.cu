@@ -1,4 +1,3 @@
-
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <iostream>
@@ -63,17 +62,17 @@ struct Sphere {
 __constant__ Sphere spheres[] = {
 	/* cornell box
 	{radius	position						emission				color					reflectType}*/
-	{1e5f,	{-1e5f - 1.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.25f, 0.25f},	DIFF},//Left 
-	{1e5f,	{1e5f + 1.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.25f, 0.25f, 0.75f},	DIFF},//Rght 
-	{1e5f,	{0.0f, 0.0f, -1e5f - 1.0f},		{0.0f, 0.0f, 0.0f},		{0.25f, 0.75f, 0.25f},	DIFF},//Back 
-	{1e5f,	{0.0f, 0.0f, 1e5f + 5.0f},		{0.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		DIFF},//Frnt 
-	{1e5f,	{0.0f, -1e5f - 1.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Botm 
-	{1e5f,	{0.0f, 1e5f + 1.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Top 
-	{0.2f,	{-0.5f, -0.8f, 0.0f},			{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	SPEC},//Mirr 
-	{0.1f,	{0.0f, -0.9f, 0.2f},			{0.0f ,3.0f ,5.0f },	{0.80f, 0.70f, 0.20f},	DIFF},//light 
-	{0.1f,	{-0.1f, -0.9f, -0.3f},			{0.7f ,0.0f ,0.0f },	{0.70f, 0.00f, 0.60f},	DIFF},//light 
-	{0.3f,	{0.4f ,-0.7f, 0.0f},			{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	REFR},//Glas 
-	{0.5f,	{0.0f ,1.35f, 0.0f},			{12.0f ,12.0f ,12.0f},	{1.0f, 1.0f, 1.0f},		DIFF} //Lite 
+	{1e5f,	{-1e5f - 100.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.25f, 0.25f},	DIFF},//Left 
+	{1e5f,	{1e5f + 100.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.25f, 0.25f, 0.75f},	DIFF},//Rght 
+	{1e5f,	{0.0f, 0.0f, -1e5f - 100.0f},		{0.0f, 0.0f, 0.0f},		{0.25f, 0.75f, 0.25f},	DIFF},//Back 
+	{1e5f,	{0.0f, 0.0f, 1e5f + 500.0f},		{0.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		DIFF},//Frnt 
+	{1e5f,	{0.0f, -1e5f - 100.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Botm 
+	{1e5f,	{0.0f, 1e5f + 100.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Top 
+	{20.0f,	{-50.0f, -80.0f, 0.0f},			{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	SPEC},//Mirr 
+	{10.0f,	{0.0f, -90.0f, 20.0f},			{0.0f ,3.0f ,5.0f },	{0.80f, 0.70f, 0.20f},	DIFF},//light 
+	{10.0f,	{-10.0f, -90.0f, -30.0f},			{0.7f ,0.0f ,0.0f },	{0.70f, 0.00f, 0.60f},	DIFF},//light 
+	{30.0f,	{40.0f ,-70.0f, 0.0f},			{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	REFR},//Glas 
+	{50.0f,	{0.0f ,135.0f, 0.0f},			{12.0f ,12.0f ,12.0f},	{1.0f, 1.0f, 1.0f},		DIFF} //Lite 
 };
 
 
@@ -93,9 +92,9 @@ __device__ float fract(float v)
 	return v - floor(v);
 }
 // this randmon function is unused
-__device__ float m_rand(float2 uv)
+__device__ float m_rand(int frameNum, float2 uv)
 {
-	float result = fract(sin(_Seed / 100.0f * dot(uv, make_float2(12.9898f, 78.233f))) * 43758.5453f);
+	float result = fract(sin((_Seed / (float)frameNum) * dot(uv, make_float2(12.9898f, 78.233f))) * 43758.5453f);
 	_Seed += 1.0f;
 	return result;
 }
@@ -123,7 +122,7 @@ __device__ inline bool intersect_scene(const Ray& r, float& t, int& sphere_id) {
 
 // radiance function
 // compute path bounces in scene and accumulate returned color from each path sgment
-__device__ float3 radiance(Ray& r, curandState* randstate, float2 uv) { // returns ray color
+__device__ float3 radiance(Ray& r, curandState* randstate, int frameNum, float2 uv) { // returns ray color
 
 	// color mask
 	float3 mask = make_float3(1.0f, 1.0f, 1.0f);
@@ -174,13 +173,13 @@ __device__ float3 radiance(Ray& r, curandState* randstate, float2 uv) { // retur
 
 			// create 2 random numbers
 			float cosTheta = curand_uniform(randstate);
-			//float cosTheta = m_rand(uv);
+			//float cosTheta = m_rand(frameNum, uv);
 			float sinTheta = sqrt(max(0.0f, 1.0f - cosTheta * cosTheta));
 			float phi = 2 * 3.1415926 * curand_uniform(randstate);
-			//float phi = 2 * 3.1415926 * m_rand(uv);
+			//float phi = 2 * 3.1415926 * m_rand(frameNum, uv);
 			// compute orthonormal coordinate frame uvw with hitpoint as origin 
 			float3 w = nl;	// normal
-			float3 u = normalize(cross(w, (fabs(w.x) > 0.99f ? make_float3(0, 0, 1) : make_float3(1, 0, 0)))); //tangent
+			float3 u = normalize(cross(w, (fabs(w.x) > (1 - 0.01) ? make_float3(0, 0, 1) : make_float3(1, 0, 0)))); //tangent
 			float3 v = cross(w, u);	// binormal
 			// compute cosine weighted random ray direction on hemisphere 
 			d = normalize(u * cos(phi) * sinTheta + v * sin(phi) * sinTheta + w * cosTheta);
@@ -199,7 +198,7 @@ __device__ float3 radiance(Ray& r, curandState* randstate, float2 uv) { // retur
 			d = r.direction - 2.0f * n * dot(n, r.direction);
 
 			// offset origin next path segment to prevent self intersection
-			hitPoint += nl * 0.01f;
+			hitPoint += nl * 0.01;
 
 			// multiply color to the object
 			mask *= f;
@@ -218,7 +217,7 @@ __device__ float3 radiance(Ray& r, curandState* randstate, float2 uv) { // retur
 			if (cos2t < 0.0f) // total internal reflection 
 			{
 				d = reflect(r.direction, n); //d = r.dir - 2.0f * n * dot(n, r.dir);
-				hitPoint += nl * FLT_EPSILON;
+				hitPoint += nl * 0.01;
 			}
 			else // cos2t > 0
 			{
@@ -234,17 +233,17 @@ __device__ float3 radiance(Ray& r, curandState* randstate, float2 uv) { // retur
 				float TP = Tr / (1.f - P);
 
 				// randomly choose reflection or transmission ray
-				if (curand_uniform(randstate) < 0.25) // reflection ray
+				if ( curand_uniform(randstate) < 0.25f) // reflection ray
 				{
 					mask *= RP;
 					d = reflect(r.direction, n);
-					hitPoint += nl * FLT_EPSILON;
+					hitPoint += nl * 0.01;
 				}
 				else // transmission ray
 				{
 					mask *= TP;
 					d = tdir; //r = Ray(x, tdir); 
-					hitPoint += nl * FLT_EPSILON; // epsilon must be small to avoid artefacts
+					hitPoint += nl * 0.01; // epsilon must be small to avoid artefacts
 				}
 			}
 		}
@@ -265,14 +264,33 @@ __device__ unsigned char Color(float c)
 	c = clamp(c, 0.0f, 1.0f);
 	return int(c * 255.99) & 0xff;
 }
+__device__ float3 gammaCorrect(float3 c)
+{
+	float3 g;
+	g.x = pow(c.x, 1 / 2.2f);
+	g.y = pow(c.y, 1 / 2.2f);
+	g.z = pow(c.z, 1 / 2.2f);
+	return g;
+}
 
-__global__ void render(uchar4 *pos, float3* accumbuffer, int width, int height, int frameNum, int HashedFrameNum)
+
+__global__ void rand_init(int max_x, int max_y, curandState* rand_state) {
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
+	int j = threadIdx.y + blockIdx.y * blockDim.y;
+	if ((i >= max_x) || (j >= max_y))
+		return;
+	int pixel_index = j * max_x + i;
+	// Each thread gets same seed, a different sequence number, no offset
+	curand_init(1997 + pixel_index, 0, 0, &rand_state[pixel_index]);
+}
+
+__global__ void render(uchar4 *pos, float3* accumbuffer, curandState* randSt, int width, int height, int frameNum, int HashedFrameNum)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
 	if ((i >= width) || (j >= height)) 
 		return;
-
+	
 	// unique id for the pixel
 	int index = j * width + i;
 	// create random number generator, see RichieSams blogspot
@@ -282,17 +300,21 @@ __global__ void render(uchar4 *pos, float3* accumbuffer, int width, int height, 
 	// offset inside each pixel
 	float offsetX = curand_uniform(&randState);	// get random float between (0, 1)
 	float offsetY = curand_uniform(&randState);
+	//float offsetX = m_rand(frameNum, make_float2(i, j));	// get random float between (0, 1)
+	//float offsetY = m_rand(frameNum, make_float2(i, j));
+	//if(index == 0 && frameNum < 100) printf("%f, %f\n", offsetX, offsetY);
 	// uv(-0.5, 0.5)
 	float2 uv = make_float2((i + offsetX) / width, (j + offsetY) / height) - make_float2(0.5f, 0.5f);
-	Ray cam(make_float3(0.0f,0.0f,1.99f), normalize(make_float3(0.0f, 0.0f, -1.0f)));
+	Ray cam(make_float3(0.0f,0.0f,250.0f), normalize(make_float3(0.0f, 0.0f, -1.0f)));
 	float3 screen = make_float3(uv.x * width, -uv.y * height, -500);
 	float3 dir = normalize(screen - cam.origin);
 
-	pixelColor = radiance(Ray(cam.origin, dir), &randState, uv);
-	
+	pixelColor = radiance(Ray(cam.origin, dir), &randState, frameNum, uv);
+	if (frameNum == 0) accumbuffer[index] = make_float3(0.0);
 	accumbuffer[index] += pixelColor;
 
-	float3 tempCol = accumbuffer[index] / (float)frameNum;
+	float3 tempCol = accumbuffer[index]/(float)frameNum;
+	tempCol = gammaCorrect(tempCol);
 
 	// (0.0f, 1.0f) -> (0, 255)
 	unsigned char r = Color(tempCol.x);
@@ -309,15 +331,15 @@ __global__ void render(uchar4 *pos, float3* accumbuffer, int width, int height, 
 	pos[index].z = b;
 }
 
-extern "C" void launch_kernel(uchar4* pos, float3* accumbuffer, unsigned int w, unsigned int h, unsigned int frame) {
+extern "C" void launch_kernel(uchar4* pos, float3* accumbuffer, curandState* randState, unsigned int w, unsigned int h, unsigned int frame) {
 
 	//set thread number
-	int tx = 8;
-	int ty = 8;
+	int tx = 32;
+	int ty = 32;
 
 	dim3 blocks(w / tx + 1, h / ty + 1);
 	dim3 threads(tx, ty);
-	render <<<blocks, threads >>> (pos, accumbuffer, w, h, frame, WangHash(frame));
+	render <<<blocks, threads >>> (pos, accumbuffer, randState, w, h, frame, WangHash(frame));
 
 	cudaThreadSynchronize();
 	checkCUDAError("kernel failed!");
