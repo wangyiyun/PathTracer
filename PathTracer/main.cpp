@@ -54,7 +54,6 @@ void createPBO(GLuint *pbo)
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, *pbo);
 		glBufferData(GL_PIXEL_UNPACK_BUFFER, size_tex_data, NULL, GL_DYNAMIC_COPY);
 
-		// 
 		cudaGraphicsGLRegisterBuffer(&resource, *pbo, cudaGraphicsMapFlagsWriteDiscard);
 	}
 }
@@ -83,7 +82,6 @@ void runCuda()
 
 	cudaGraphicsUnmapResources(1, &resource, 0);
 }
-
 
 // glut display callback function.
 // This function gets called every time the scene gets redisplayed

@@ -24,6 +24,17 @@ void checkCUDAError(const char *msg)
 	}
 }
 
+// hash function to calculate new seed for each frame
+// see http://www.reedbeta.com/blog/2013/01/12/quick-and-easy-gpu-random-numbers-in-d3d11/
+uint WangHash(uint a) {
+	a = (a ^ 61) ^ (a >> 16);
+	a = a + (a << 3);
+	a = a ^ (a >> 4);
+	a = a * 0x27d4eb2d;
+	a = a ^ (a >> 15);
+	return a;
+}
+
 // "__host__": This function called by CPU and runs on CPU
 // "__device__": This function called by GPU and runs on GPU (inside one thread)
 // "__global__": This is a kernel function, called by CPU and runs on GPU
@@ -75,37 +86,11 @@ __constant__ Sphere spheres[] = {
 	{50.0f,	{0.0f ,135.0f, 0.0f},			{12.0f ,12.0f ,12.0f},	{1.0f, 1.0f, 1.0f},		DIFF} //Lite 
 };
 
-
-// hash function to calculate new seed for each frame
-// see http://www.reedbeta.com/blog/2013/01/12/quick-and-easy-gpu-random-numbers-in-d3d11/
-uint WangHash(uint a) {
-	a = (a ^ 61) ^ (a >> 16);
-	a = a + (a << 3);
-	a = a ^ (a >> 4);
-	a = a * 0x27d4eb2d;
-	a = a ^ (a >> 15);
-	return a;
-}
-
-__device__ float fract(float v)
+__device__ inline bool intersect_scene(const Ray& r, float& t, int& sphere_id)
 {
-	return v - floor(v);
-}
-// this randmon function is unused
-__device__ float m_rand(int frameNum, float2 uv)
-{
-	float result = fract(sin((_Seed / (float)frameNum) * dot(uv, make_float2(12.9898f, 78.233f))) * 43758.5453f);
-	_Seed += 1.0f;
-	return result;
-}
-
-__device__ inline bool intersect_scene(const Ray& r, float& t, int& sphere_id) {
-
-	float tmin = 1e20;
-	float tmax = -1e20;
-	float d = 1e21;
-	float k = 1e21;
-	float q = 1e21;
+	float d = 1e20;
+	float k = 1e20;
+	float q = 1e20;
 	float inf = t = 1e20;
 
 	// intersect all spheres in the scene
@@ -113,7 +98,7 @@ __device__ inline bool intersect_scene(const Ray& r, float& t, int& sphere_id) {
 	for (int i = int(numspheres); i--;)  // for all spheres in scene
 	{
 		// keep track of distance from origin to closest intersection point
-		if ((d = spheres[i].intersect(r)) && d < t) { t = d; sphere_id = i;}
+		if ((d = spheres[i].intersect(r)) && d < t && t > 0) { t = d; sphere_id = i;}
 	}
 
 	// t is distance to closest intersection of ray with all primitives in the scene
@@ -172,22 +157,23 @@ __device__ float3 radiance(Ray& r, curandState* randstate, int frameNum, float2 
 		if (refltype == DIFF) {
 
 			// create 2 random numbers
-			float cosTheta = curand_uniform(randstate);
-			//float cosTheta = m_rand(frameNum, uv);
-			float sinTheta = sqrt(max(0.0f, 1.0f - cosTheta * cosTheta));
-			float phi = 2 * 3.1415926 * curand_uniform(randstate);
-			//float phi = 2 * 3.1415926 * m_rand(frameNum, uv);
+			// create 2 random numbers
+			float r1 = 2 * 3.1415926 * curand_uniform(randstate);
+			float r2 = curand_uniform(randstate);
+			float r2s = sqrtf(r2);
+
 			// compute orthonormal coordinate frame uvw with hitpoint as origin 
-			float3 w = nl;	// normal
-			float3 u = normalize(cross(w, (fabs(w.x) > (1 - 0.01) ? make_float3(0, 0, 1) : make_float3(1, 0, 0)))); //tangent
-			float3 v = cross(w, u);	// binormal
+			float3 w = nl;
+			float3 u = normalize(cross((fabs(w.x) > .1 ? make_float3(0, 1, 0) : make_float3(1, 0, 0)), w));
+			float3 v = cross(w, u);
+
 			// compute cosine weighted random ray direction on hemisphere 
-			d = normalize(u * cos(phi) * sinTheta + v * sin(phi) * sinTheta + w * cosTheta);
+			d = normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrtf(1 - r2));
 
 			// offset origin next path segment to prevent self intersection
-			hitPoint += nl * 0.01f;
+			hitPoint += nl * 0.03;
 
-			// multiply color to the object
+			// multiply mask with colour of object
 			mask *= f;
 		}
 
@@ -212,12 +198,12 @@ __device__ float3 radiance(Ray& r, curandState* randstate, int frameNum, float2 
 			float nt = 1.5f;  // Index of Refraction glass/water
 			float nnt = into ? nc / nt : nt / nc;  // IOR ratio of refractive materials
 			float ddn = dot(r.direction, nl);
-			float cos2t = 1.0f - nnt * nnt * (1.0f - ddn * ddn);
+			float cos2t = 1.0f - nnt * nnt * (1.f - ddn * ddn);
 
 			if (cos2t < 0.0f) // total internal reflection 
 			{
 				d = reflect(r.direction, n); //d = r.dir - 2.0f * n * dot(n, r.dir);
-				hitPoint += nl * 0.01;
+				hitPoint += nl * 0.01f;
 			}
 			else // cos2t > 0
 			{
@@ -233,17 +219,17 @@ __device__ float3 radiance(Ray& r, curandState* randstate, int frameNum, float2 
 				float TP = Tr / (1.f - P);
 
 				// randomly choose reflection or transmission ray
-				if ( curand_uniform(randstate) < 0.25f) // reflection ray
+				if (curand_uniform(randstate) < 0.25) // reflection ray
 				{
 					mask *= RP;
 					d = reflect(r.direction, n);
-					hitPoint += nl * 0.01;
+					hitPoint += nl * 0.02f;
 				}
 				else // transmission ray
 				{
 					mask *= TP;
 					d = tdir; //r = Ray(x, tdir); 
-					hitPoint += nl * 0.01; // epsilon must be small to avoid artefacts
+					hitPoint += nl * 0.0005f; // epsilon must be small to avoid artefacts
 				}
 			}
 		}
