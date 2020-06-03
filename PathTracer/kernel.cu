@@ -39,6 +39,11 @@ uint WangHash(uint a) {
 // "__device__": This function called by GPU and runs on GPU (inside one thread)
 // "__global__": This is a kernel function, called by CPU and runs on GPU
 
+// reflection type (DIFFuse, SPECular, REFRactive)
+enum Refl_t { DIFF, SPEC, REFR };
+// geometry type
+enum Geom_t { SPHERE, CONE };
+
 struct Ray {
 	float3 origin;
 	float3 direction;
@@ -46,8 +51,29 @@ struct Ray {
 	__device__ Ray(float3 o_, float3 d_) : origin(o_), direction(d_) {}
 };
 
-// reflection type (DIFFuse, SPECular, REFRactive)
-enum Refl_t { DIFF, SPEC, REFR };
+struct Hit
+{
+	float hitDist;		//hitDistance
+	float3 normal;
+	float3 oriNormal;	// oriented normal (for rafraction)
+	float3 nextDir;		// direction for next segment
+	float3 color;
+	float3 emission;
+	Refl_t reflectType;
+	Geom_t geomtryType;
+	int geomID;
+	__device__ void Init() {
+		hitDist = 1e20;
+		normal = make_float3(0.0f);
+		oriNormal = make_float3(0.0f);
+		nextDir = make_float3(0.0f);
+		color = make_float3(0.0f);
+		emission = make_float3(0.0f);
+		reflectType = DIFF;
+		geomtryType = SPHERE;
+		geomID = -1;
+	}
+};
 
 struct Sphere {
 
@@ -73,88 +99,156 @@ struct Sphere {
 __constant__ Sphere spheres[] = {
 	/* cornell box
 	{radius	position						emission				color					reflectType}*/
-	{1e5f,	{-1e5f - 100.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.25f, 0.25f},	DIFF},//Left 
-	{1e5f,	{1e5f + 100.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.25f, 0.25f, 0.75f},	DIFF},//Rght 
-	{1e5f,	{0.0f, 0.0f, -1e5f - 100.0f},		{0.0f, 0.0f, 0.0f},		{0.25f, 0.75f, 0.25f},	DIFF},//Back 
-	{1e5f,	{0.0f, 0.0f, 1e5f + 500.0f},		{0.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		DIFF},//Frnt 
-	{1e5f,	{0.0f, -1e5f - 100.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Botm 
-	{1e5f,	{0.0f, 1e5f + 100.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Top 
-	{20.0f,	{-50.0f, -80.0f, 0.0f},			{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	SPEC},//Mirr 
+	{1e5f,	{-1e5f - 100.0f, 0.0f, 0.0f},	{0.0f, 0.0f, 0.0f},		{0.75f, 0.25f, 0.25f},	DIFF},//Left 
+	{1e5f,	{1e5f + 100.0f, 0.0f, 0.0f},	{0.0f, 0.0f, 0.0f},		{0.25f, 0.25f, 0.75f},	DIFF},//Rght 
+	{1e5f,	{0.0f, 0.0f, -1e5f - 100.0f},	{0.0f, 0.0f, 0.0f},		{0.25f, 0.75f, 0.25f},	DIFF},//Back 
+	{1e5f,	{0.0f, 0.0f, 1e5f + 500.0f},	{0.0f, 0.0f, 0.0f},		{0.0f, 0.0f, 0.0f},		DIFF},//Frnt 
+	{1e5f,	{0.0f, -1e5f - 100.0f, 0.0f},	{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Botm 
+	{1e5f,	{0.0f, 1e5f + 100.0f, 0.0f},	{0.0f, 0.0f, 0.0f},		{0.75f, 0.75f, 0.75f},	DIFF},//Top 
+	//{20.0f,	{-50.0f, -80.0f, 0.0f},			{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	SPEC},//Mirr 
 	{10.0f,	{0.0f, -90.0f, 20.0f},			{0.0f ,3.0f ,5.0f },	{0.80f, 0.70f, 0.20f},	DIFF},//light 
-	{10.0f,	{-10.0f, -90.0f, -30.0f},			{0.7f ,0.0f ,0.0f },	{0.70f, 0.00f, 0.60f},	DIFF},//light 
+	{10.0f,	{-10.0f, -90.0f, -30.0f},		{0.7f ,0.0f ,0.0f },	{0.70f, 0.00f, 0.60f},	DIFF},//light 
 	{30.0f,	{40.0f ,-70.0f, 0.0f},			{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	REFR},//Glas 
 	{50.0f,	{0.0f ,135.0f, 0.0f},			{12.0f ,12.0f ,12.0f},	{1.0f, 1.0f, 1.0f},		DIFF} //Lite 
 };
 
-__device__ inline bool intersect_scene(const Ray& r, float& t, int& sphere_id)
+//https://www.shadertoy.com/view/MtcXWr
+struct Cone {
+	float3 tip, axis;
+	float cosA, height;
+	float3 emission, color;
+	Refl_t reflectType;	//DIFF, SPEC, REFR
+	__device__ float intersect(const Ray& r) const { // returns distance, 0 if nohit  
+
+		float3 co = r.origin - tip;
+		float3 fixAxis = normalize(axis);
+		float a = dot(r.direction, fixAxis) * dot(r.direction, fixAxis) - cosA * cosA;
+		float b = 2. * (dot(r.direction, fixAxis) * dot(co, fixAxis) - dot(r.direction, co) * cosA * cosA);
+		float c = dot(co, fixAxis) * dot(co, fixAxis) - dot(co, co) * cosA * cosA;
+
+		float det = b * b - 4. * a * c;
+		if (det < 0.) return 0;
+
+		det = sqrt(det);
+		float t1 = (-b - det) / (2. * a);
+		float t2 = (-b + det) / (2. * a);
+
+		// This is a bit messy; there ought to be a more elegant solution.
+		float t = t1;
+		if (t < 0. || t2 > 0. && t2 < t) t = t2;
+		if (t < 0.) return 0;
+
+		float3 cp = r.origin + t * r.direction - tip;
+		float h = dot(cp, fixAxis);
+		if (h < 0. || h > height) return 0;
+		return t;
+	}
+};
+
+__constant__ Cone cones[] = {
+	/*
+	tip							axis					cosA	height	emission				color					reflectType*/
+	{{-50.0f, -20.0f, 0.0f},	{0.0f, -1.0f, 0.0f},	0.95f,	80.0f,	{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	DIFF}
+};
+
+__device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit)
 {
 	float d = 1e20;
-	float k = 1e20;
-	float q = 1e20;
-	float inf = t = 1e20;
+	float INF = 1e20;
 
 	// intersect all spheres in the scene
-	float numspheres = sizeof(spheres) / sizeof(Sphere);
-	for (int i = int(numspheres); i--;)  // for all spheres in scene
+	float spheresNum = sizeof(spheres) / sizeof(Sphere);
+	for (int i = 0; i < spheresNum; i++)  // for all spheres in scene
 	{
 		// keep track of distance from origin to closest intersection point
-		if ((d = spheres[i].intersect(r)) && d < t && t > 0) { t = d; sphere_id = i;}
+		if ((d = spheres[i].intersect(ray)) && d < bestHit.hitDist && d > 0)
+		{ 
+			bestHit.hitDist = d;
+			bestHit.geomtryType = SPHERE;
+			bestHit.geomID = i;
+		}
+	}
+
+	// intersect all cones in the scene
+	float conesNum = sizeof(cones) / sizeof(Cone);
+	for (int i = 0; i < conesNum; i++)  // for all cones in scene
+	{
+		// keep track of distance from origin to closest intersection point
+		if ((d = cones[i].intersect(ray)) && d < bestHit.hitDist && d > 0)
+		{
+			bestHit.hitDist = d;
+			bestHit.geomtryType = CONE;
+			bestHit.geomID = i;
+		}
 	}
 
 	// t is distance to closest intersection of ray with all primitives in the scene
-	return t < inf;
+	if (bestHit.hitDist < INF)
+	{
+		float3 hitPostion = ray.origin + ray.direction * bestHit.hitDist;
+		switch (bestHit.geomtryType)
+		{
+		case SPHERE:
+			bestHit.normal = normalize(hitPostion - spheres[bestHit.geomID].position);
+			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0 ? bestHit.normal : bestHit.normal * -1;
+			bestHit.color = spheres[bestHit.geomID].color;
+			bestHit.emission = spheres[bestHit.geomID].emission;
+			bestHit.reflectType = spheres[bestHit.geomID].reflectType;
+			break;
+		case CONE:
+			float3 cp = hitPostion - cones[bestHit.geomID].tip;
+			bestHit.normal = normalize(cp * dot(cones[bestHit.geomID].axis, cp) / dot(cp, cp) - cones[bestHit.geomID].axis);
+			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0 ? bestHit.normal : bestHit.normal * -1;
+			bestHit.color = cones[bestHit.geomID].color;
+			bestHit.emission = cones[bestHit.geomID].emission;
+			bestHit.reflectType = cones[bestHit.geomID].reflectType;
+			break;
+		default:
+			break;
+		}
+		return true;
+	}
+	else return false;
 }
 
 // radiance function
 // compute path bounces in scene and accumulate returned color from each path sgment
-__device__ float3 radiance(Ray& r, curandState* randstate, int frameNum, float2 uv) { // returns ray color
+__device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum) { // returns ray color
 
+	Hit bestHit;
 	// color mask
-	float3 mask = make_float3(1.0f, 1.0f, 1.0f);
+	float3 colorMask = make_float3(1.0f, 1.0f, 1.0f);
 	// accumulated color for current pixel
-	float3 accucolor = make_float3(0.0f, 0.0f, 0.0f);
+	float3 accuColor = make_float3(0.0f, 0.0f, 0.0f);
 
-	//float t = 100000;
-	//int sphere_id = -1;
-	//if (!intersect_scene(r, t, sphere_id))
+	//// hit debug
+	//bestHit.Init();
+	//if (!intersect_scene(ray, bestHit))
 	//	return make_float3(0.0f, 0.0f, 0.0f); // if miss, return black
-	//else accucolor = spheres[sphere_id].color;
+	//else
+	//{
+	//	return (bestHit.normal + make_float3(0.5f)) / 2.0f;
+	//	//return bestHit.emission;
+	//}
+	//// hit debug end
 
 	int bounces = 0;
 	while(bounces < 5 || curand_uniform(randstate) < 0.5f)
 	{  
 		bounces++;
-		// reset scene intersection function parameters
-		float t = 1e20; // distance to intersection 
-		int sphere_id = -1;	// which sphere the ray interesect
-		float3 f;		// primitive color
-		float3 emit;	// primitive emission color
-		float3 hitPoint;		// intersection point
-		float3 n;		// normal
-		float3 nl;		// oriented normal
-		float3 d;		// ray direction of next path segment
-		Refl_t refltype;
-
+		bestHit.Init();
 		// intersect ray with scene
-		// intersect_scene keeps track of closest intersected primitive and distance to closest intersection point
-		if (!intersect_scene(r, t, sphere_id))
+		if (!intersect_scene(ray, bestHit))
 			return make_float3(0.0f, 0.0f, 0.0f); // if miss, return black
 
 		// else: we've got a hit with a scene primitive
-
-		Sphere& sphere = spheres[sphere_id]; // hit object with closest intersection
-		hitPoint = r.origin + r.direction * t;  // intersection point on object
-		n = normalize(hitPoint - sphere.position);		// normal
-		nl =dot(n, r.direction) < 0 ? n : n * -1.0f; // correctly oriented normal
-		f = sphere.color;   // object color
-		refltype = sphere.reflectType;
-		emit = sphere.emission;  // object emission
-		accucolor += (mask * emit);
+		accuColor += (colorMask * bestHit.emission);
+		float3 hitPosition = ray.origin + ray.direction * bestHit.hitDist;
 
 		// SHADING: diffuse, specular or refractive
 
 		// ideal diffuse reflection
-		if (refltype == DIFF) {
+		if (bestHit.reflectType == DIFF) {
 
 			// create 2 random numbers
 			// create 2 random numbers
@@ -163,55 +257,55 @@ __device__ float3 radiance(Ray& r, curandState* randstate, int frameNum, float2 
 			float r2s = sqrtf(r2);
 
 			// compute orthonormal coordinate frame uvw with hitpoint as origin 
-			float3 w = nl;
+			float3 w = bestHit.oriNormal;
 			float3 u = normalize(cross((fabs(w.x) > .1 ? make_float3(0, 1, 0) : make_float3(1, 0, 0)), w));
 			float3 v = cross(w, u);
 
 			// compute cosine weighted random ray direction on hemisphere 
-			d = normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrtf(1 - r2));
+			bestHit.nextDir = normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrtf(1 - r2));
 
 			// offset origin next path segment to prevent self intersection
-			hitPoint += nl * 0.03;
+			hitPosition += bestHit.oriNormal * 0.03;
 
 			// multiply mask with colour of object
-			mask *= f;
+			colorMask *= bestHit.color;
 		}
 
 		// ideal specular reflection
-		if (refltype == SPEC) {
+		if (bestHit.reflectType == SPEC) {
 
 			// reflect
-			d = r.direction - 2.0f * n * dot(n, r.direction);
+			bestHit.nextDir = ray.direction - 2.0f * bestHit.normal * dot(bestHit.normal, ray.direction);
 
 			// offset origin next path segment to prevent self intersection
-			hitPoint += nl * 0.01;
+			hitPosition += bestHit.oriNormal * 0.01;
 
 			// multiply color to the object
-			mask *= f;
+			colorMask *= bestHit.color;
 		}
 
 		// ideal refraction (based on smallpt code by Kevin Beason)
-		if (refltype == REFR) {
+		if (bestHit.reflectType == REFR) {
 
-			bool into = dot(n, nl) > 0; // is ray entering or leaving refractive material?
+			bool into = dot(bestHit.normal, bestHit.oriNormal) > 0; // is ray entering or leaving refractive material?
 			float nc = 1.0f;  // Index of Refraction air
 			float nt = 1.5f;  // Index of Refraction glass/water
 			float nnt = into ? nc / nt : nt / nc;  // IOR ratio of refractive materials
-			float ddn = dot(r.direction, nl);
+			float ddn = dot(ray.direction, bestHit.oriNormal);
 			float cos2t = 1.0f - nnt * nnt * (1.f - ddn * ddn);
 
 			if (cos2t < 0.0f) // total internal reflection 
 			{
-				d = reflect(r.direction, n); //d = r.dir - 2.0f * n * dot(n, r.dir);
-				hitPoint += nl * 0.01f;
+				bestHit.nextDir = reflect(ray.direction, bestHit.normal); //d = r.dir - 2.0f * n * dot(n, r.dir);
+				hitPosition += bestHit.oriNormal * 0.01f;
 			}
 			else // cos2t > 0
 			{
 				// compute direction of transmission ray
-				float3 tdir = normalize(r.direction * nnt - n * ((into ? 1 : -1) * (ddn * nnt + sqrtf(cos2t))));
+				float3 tdir = normalize(ray.direction * nnt - bestHit.normal * ((into ? 1 : -1) * (ddn * nnt + sqrtf(cos2t))));
 
 				float R0 = (nt - nc) * (nt - nc) / (nt + nc) * (nt + nc);
-				float c = 1.f - (into ? -ddn : dot(tdir, n));
+				float c = 1.f - (into ? -ddn : dot(tdir, bestHit.normal));
 				float Re = R0 + (1.f - R0) * c * c * c * c * c;
 				float Tr = 1 - Re; // Transmission
 				float P = .25f + .5f * Re;
@@ -221,27 +315,27 @@ __device__ float3 radiance(Ray& r, curandState* randstate, int frameNum, float2 
 				// randomly choose reflection or transmission ray
 				if (curand_uniform(randstate) < 0.25) // reflection ray
 				{
-					mask *= RP;
-					d = reflect(r.direction, n);
-					hitPoint += nl * 0.02f;
+					colorMask *= RP;
+					bestHit.nextDir = reflect(ray.direction, bestHit.normal);
+					hitPosition += bestHit.oriNormal * 0.02f;
 				}
 				else // transmission ray
 				{
-					mask *= TP;
-					d = tdir; //r = Ray(x, tdir); 
-					hitPoint += nl * 0.0005f; // epsilon must be small to avoid artefacts
+					colorMask *= TP;
+					bestHit.nextDir = tdir; //r = Ray(x, tdir); 
+					hitPosition += bestHit.oriNormal * 0.0005f; // epsilon must be small to avoid artefacts
 				}
 			}
 		}
 
 		// set up origin and direction of next path segment
-		r.origin = hitPoint;
-		r.direction = d;
+		ray.origin = hitPosition;
+		ray.direction = bestHit.nextDir;
 	}
 
 	// add radiance up to a certain ray depth
 	// return accumulated color after all bounces are computed
-	return accucolor;
+	return accuColor;
 }
 
 
@@ -295,8 +389,8 @@ __global__ void render(uchar4 *pos, float3* accumbuffer, curandState* randSt, in
 	float3 screen = make_float3(uv.x * width, -uv.y * height, -500);
 	float3 dir = normalize(screen - cam.origin);
 
-	pixelColor = radiance(Ray(cam.origin, dir), &randState, frameNum, uv);
-	if (frameNum == 0) accumbuffer[index] = make_float3(0.0);
+	pixelColor = radiance(Ray(cam.origin, dir), &randState, frameNum);
+	if (frameNum == 0) accumbuffer[index] = make_float3(0.0);	//init
 	accumbuffer[index] += pixelColor;
 
 	float3 tempCol = accumbuffer[index]/(float)frameNum;
@@ -320,8 +414,8 @@ __global__ void render(uchar4 *pos, float3* accumbuffer, curandState* randSt, in
 extern "C" void launch_kernel(uchar4* pos, float3* accumbuffer, curandState* randState, unsigned int w, unsigned int h, unsigned int frame) {
 
 	//set thread number
-	int tx = 32;
-	int ty = 32;
+	int tx = 16;
+	int ty = 16;
 
 	dim3 blocks(w / tx + 1, h / ty + 1);
 	dim3 threads(tx, ty);
