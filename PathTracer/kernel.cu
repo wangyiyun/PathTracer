@@ -3,8 +3,6 @@
 #include <iostream>
 using namespace std;
 #include <stdio.h>
-//#include <glm/glm.hpp>
-//using namespace glm;
 #include "cutil_math.h"
 #include <curand.h>
 #include <curand_kernel.h>
@@ -80,16 +78,16 @@ struct Sphere {
 	float radius;
 	float3 position, emission, color;	// color may not use in the future (emission only)
 	Refl_t reflectType;	//DIFF, SPEC, REFR
-	__device__ float intersect(const Ray& r) const { // returns distance, 0 if nohit 
+	__device__ float intersect(const Ray& ray) const { // returns distance, 0 if nohit 
 
 		// Ray/sphere intersection
 		// Quadratic formula required to solve ax^2 + bx + c = 0 
 		// Solution x = (-b +- sqrt(b*b - 4ac)) / 2a
 		// Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0 
 
-		float3 op = position - r.origin;
+		float3 op = position - ray.origin;
 		float t, epsilon = 0.01f;
-		float b = dot(op, r.direction);
+		float b = dot(op, ray.direction);
 		float disc = b * b - dot(op, op) + radius * radius; // discriminant
 		if (disc < 0) return 0; else disc = sqrtf(disc);
 		return (t = b - disc) > epsilon ? t : ((t = b + disc) > epsilon ? t : 0);
@@ -112,35 +110,21 @@ __constant__ Sphere spheres[] = {
 	{50.0f,	{0.0f ,135.0f, 0.0f},			{12.0f ,12.0f ,12.0f},	{1.0f, 1.0f, 1.0f},		DIFF} //Lite 
 };
 
-//https://www.shadertoy.com/view/MtcXWr
 struct Cone {
 	float3 tip, axis;
 	float cosA, height;
 	float3 emission, color;
 	Refl_t reflectType;	//DIFF, SPEC, REFR
-	__device__ float intersect(const Ray& r) const { // returns distance, 0 if nohit  
+	__device__ float intersect(const Ray& ray) const { // returns distance, 0 if nohit  
 
-		float3 co = r.origin - tip;
-		float3 fixAxis = normalize(axis);
-		float a = dot(r.direction, fixAxis) * dot(r.direction, fixAxis) - cosA * cosA;
-		float b = 2. * (dot(r.direction, fixAxis) * dot(co, fixAxis) - dot(r.direction, co) * cosA * cosA);
-		float c = dot(co, fixAxis) * dot(co, fixAxis) - dot(co, co) * cosA * cosA;
-
-		float det = b * b - 4. * a * c;
-		if (det < 0.) return 0;
-
-		det = sqrt(det);
-		float t1 = (-b - det) / (2. * a);
-		float t2 = (-b + det) / (2. * a);
-
-		// This is a bit messy; there ought to be a more elegant solution.
-		float t = t1;
-		if (t < 0. || t2 > 0. && t2 < t) t = t2;
-		if (t < 0.) return 0;
-
-		float3 cp = r.origin + t * r.direction - tip;
-		float h = dot(cp, fixAxis);
-		if (h < 0. || h > height) return 0;
+		float3 co = ray.origin - tip; float cos2t = cosA; cos2t *= cos2t;
+		float t, dotDV = dot(ray.direction, axis), dotCOV = dot(co, axis);
+		float a = dotDV * dotDV - cos2t, b = 2.0f * (dotDV * dotCOV - dot(ray.direction, co) * cos2t),
+			c = dotCOV * dotCOV - dot(co, co) * cos2t, delta = b * b - 4 * a * c;
+		if (delta <= 0.0f) return 0; else delta = sqrt(delta);
+		t = (-b + delta) / 2.0f / a > 0.01f ? (-b + delta) / 2.0f / a : max((-b - delta) / 2.0f / a, 0.0f);
+		float3 hit = ray.origin + t * ray.direction;
+		if (dot(hit - tip, axis) <= 0.0f) return 0;
 		return t;
 	}
 };
@@ -148,7 +132,7 @@ struct Cone {
 __constant__ Cone cones[] = {
 	/*
 	tip							axis					cosA	height	emission				color					reflectType*/
-	{{-50.0f, -20.0f, 0.0f},	{0.0f, -1.0f, 0.0f},	0.95f,	80.0f,	{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	DIFF}
+	{{-50.0f, -20.0f, 0.0f},	{0.0f, -1.0f, 0.0f},	0.95f,	80.0f,	{0.0f ,0.0f ,0.0f },	{0.99f, 0.99f, 0.99f},	REFR}
 };
 
 __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit)
@@ -190,7 +174,7 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit)
 		{
 		case SPHERE:
 			bestHit.normal = normalize(hitPostion - spheres[bestHit.geomID].position);
-			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0 ? bestHit.normal : bestHit.normal * -1;
+			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0.0f ? bestHit.normal : bestHit.normal * -1.0f;
 			bestHit.color = spheres[bestHit.geomID].color;
 			bestHit.emission = spheres[bestHit.geomID].emission;
 			bestHit.reflectType = spheres[bestHit.geomID].reflectType;
@@ -198,7 +182,7 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit)
 		case CONE:
 			float3 cp = hitPostion - cones[bestHit.geomID].tip;
 			bestHit.normal = normalize(cp * dot(cones[bestHit.geomID].axis, cp) / dot(cp, cp) - cones[bestHit.geomID].axis);
-			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0 ? bestHit.normal : bestHit.normal * -1;
+			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0.0f ? bestHit.normal : bestHit.normal * -1.0f;
 			bestHit.color = cones[bestHit.geomID].color;
 			bestHit.emission = cones[bestHit.geomID].emission;
 			bestHit.reflectType = cones[bestHit.geomID].reflectType;
@@ -227,7 +211,7 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum) { // 
 	//	return make_float3(0.0f, 0.0f, 0.0f); // if miss, return black
 	//else
 	//{
-	//	return (bestHit.normal + make_float3(0.5f)) / 2.0f;
+	//	return (bestHit.oriNormal + make_float3(0.5f)) / 2.0f;
 	//	//return bestHit.emission;
 	//}
 	//// hit debug end
@@ -248,9 +232,8 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum) { // 
 		// SHADING: diffuse, specular or refractive
 
 		// ideal diffuse reflection
-		if (bestHit.reflectType == DIFF) {
-
-			// create 2 random numbers
+		if (bestHit.reflectType == DIFF)
+		{
 			// create 2 random numbers
 			float r1 = 2 * 3.1415926 * curand_uniform(randstate);
 			float r2 = curand_uniform(randstate);
@@ -272,7 +255,8 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum) { // 
 		}
 
 		// ideal specular reflection
-		if (bestHit.reflectType == SPEC) {
+		if (bestHit.reflectType == SPEC)
+		{
 
 			// reflect
 			bestHit.nextDir = ray.direction - 2.0f * bestHit.normal * dot(bestHit.normal, ray.direction);
@@ -285,7 +269,8 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum) { // 
 		}
 
 		// ideal refraction (based on smallpt code by Kevin Beason)
-		if (bestHit.reflectType == REFR) {
+		if (bestHit.reflectType == REFR)
+		{
 
 			bool into = dot(bestHit.normal, bestHit.oriNormal) > 0; // is ray entering or leaving refractive material?
 			float nc = 1.0f;  // Index of Refraction air
@@ -317,7 +302,7 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum) { // 
 				{
 					colorMask *= RP;
 					bestHit.nextDir = reflect(ray.direction, bestHit.normal);
-					hitPosition += bestHit.oriNormal * 0.02f;
+					hitPosition += bestHit.oriNormal * 0.01f;
 				}
 				else // transmission ray
 				{
