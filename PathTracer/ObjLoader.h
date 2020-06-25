@@ -9,7 +9,7 @@ struct Scene
 	int vertsNum;	// vertices number of the scene, also the number of uvs and normals
 	float3* verts;	// pointer for all vertices
 	int objsNum;
-	int* objsInfo;		// [objVertsNum, matNum, normalTexNum, ambientTexNum, temperature]
+	int* objsInfo;		// [objVertsNum, matNum, normalTexNum, ambientTexNum, emissionTexNum]
 	float2* uvs;
 	float3* normals;
 	std::vector<std::string> objNames;
@@ -92,10 +92,10 @@ bool LoadObj(
 	{
 		// [objVertsNum, matNum, normalTexNum, ambientTexNum, temperature]
 		scene.objsInfo[i * 5] = temp_object_indices[i];	//objVertsNum
-		scene.objsInfo[i * 5 + 1] = 1;	//matNum
+		scene.objsInfo[i * 5 + 1] = 0;	//reflectType
 		scene.objsInfo[i * 5 + 2] = -1;	//normalTexNum
-		scene.objsInfo[i * 5 + 3] = 0;	//ambientTexNum
-		scene.objsInfo[i * 5 + 4] = 0;	//temperature
+		scene.objsInfo[i * 5 + 3] = -1;	//ambientTexNum
+		scene.objsInfo[i * 5 + 4] = 0;	//emissionTexNum
 	}
 	
 	scene.vertsNum = vertexIndices.size();

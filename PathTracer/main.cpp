@@ -152,9 +152,8 @@ void prepareTextures()
 
 void setObjInfo()
 {
-	std::cout << "----------MAT NUMBER----------" << std::endl;
-	std::cout << "mat_human = 0, mat_marble = 1, mat_paint = 2, mat_glass = 3, mat_rubber = 4"<< std::endl;
-	std::cout << "mat_brass = 5, mat_road = 6, mat_al = 7, mat_al2o3 = 8, mat_brick = 9" << std::endl;
+	std::cout << "---------REFLECT TYPE---------" << std::endl;
+	std::cout << "DIFF = 0, SPEC = 1, REFR = 2"<< std::endl;
 	std::cout << "----------TEX NUMBER----------" << std::endl;
 	std::cout << "tex_mug_normal = 0, tex_table_ambient = 1" << std::endl;
 	std::cout << "If don't have texture, input -1" << std::endl;
@@ -165,13 +164,13 @@ void setObjInfo()
 		std::cout << "-------------------------------" << std::endl;
 		std::cout << "Current object name is :";
 		std::cout << SceneData.objNames[i] << std::endl;
-		//std::cout << "The mat number is:";
+		//std::cout << "The reflect type is:";
 		//std::cin >> SceneData.objsInfo[i * 5 + 1];
 		//std::cout << "The normal texture number is:";
 		//std::cin >> SceneData.objsInfo[i * 5 + 2];
 		//std::cout << "The ambient texture number is:";
 		//std::cin >> SceneData.objsInfo[i * 5 + 3];
-		//std::cout << "The temperature is:";
+		//std::cout << "The emission texture number is:";
 		//std::cin >> SceneData.objsInfo[i * 5 + 4];
 	}
 }
@@ -464,13 +463,11 @@ int main(int argc, char **argv)
 	
 	initOpenGl();
 	// load scene before init CUDA! Need mesh data for initialize
-	LoadObj("input/test.obj", SceneData);
+	LoadObj("input/BunnyHigh.obj", SceneData);
 	// load texture
 	//tex_mug_normal.LoadTex("input/texture/mug_normal.jpg");
 	//textures.push_back(tex_mug_normal);
-	//tex_table_ambient.LoadTex("input/texture/table_ambient.jpg");
-	//textures.push_back(tex_table_ambient);
-	tex_table_ambient.LoadTex("input/texture/test_tex.jpg");
+	tex_table_ambient.LoadTex("input/texture/wave_tex.jpg");
 	textures.push_back(tex_table_ambient);
 	// set all data to 
 	prepareTextures();
