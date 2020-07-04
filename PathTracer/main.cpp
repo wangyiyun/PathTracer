@@ -12,7 +12,6 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-//#include "imgui_impl_glut.h"
 
 #include "cuda_gl_interop.h"
 
@@ -23,6 +22,8 @@
 #include "include/FreeImage.h"
 #include "ObjLoader.h"
 #include "TexLoader.h"
+
+#include "imgui_impl_glut.h"
 
 const int width = 640;	// width of the figure
 const int height = 480;	// height of the figure
@@ -39,14 +40,15 @@ float3* accu;	// place for accumulate all frame result
 curandState* randState;
 
 // Implement of this function is in kernel.cu
-extern "C" void launch_kernel(float3*, float3*, curandState*, unsigned int, unsigned int, unsigned int, bool, 
+extern "C" void launch_kernel(float3*, float3*, curandState*, unsigned int, unsigned int, unsigned int, bool, int, 
 	int, float3*, int, int*, float2*, float3*,
 	int, int*, float3*,
-	int);
+	int, float*);
 
 // Auto output
-#define OUTPUT_FRAME_NUM 500
+#define OUTPUT_FRAME_NUM 256
 bool camAtRight = true;	// pos of the camera, true for right side, false for left side
+int waveNum = 0;
 int type = 0;	// 0: emi+refl, 1: emi, 2: refl
 
 // host
@@ -69,13 +71,145 @@ float3* h_tex_data;	// pixels color of all textures
 // device
 int* d_tex_wh;	//[w0,h0,w1,h1...] size = texNum * 2
 float3* d_tex_data;
+float* d_emiList;
 
-//void draw_gui()
-//{
-//	ImGui_ImplGlut_NewFrame();
-//	ImGui::ShowDemoWindow();
-//	ImGui::Render();
-//}
+// func
+void initCuda();
+void AutoOutput();
+void GenFileName(std::string *s);
+
+void draw_gui()
+{
+	ImGui_ImplGlut_NewFrame();
+	//ImGui::ShowDemoWindow();
+	ImGui::Begin("Parameter setting");
+	if (ImGui::Checkbox("Cam at right", &camAtRight))
+	{
+		initCuda();
+	}
+	if (ImGui::RadioButton("emi+refl", &type, 0))
+	{
+		initCuda();
+	}
+	ImGui::SameLine();
+	if (ImGui::RadioButton("emi", &type, 1))
+	{
+		initCuda();
+	}
+	ImGui::SameLine();
+	if (ImGui::RadioButton("refl", &type, 2))
+	{
+		initCuda();
+	}
+	const char* materials[] = { "mat_human", "mat_marble", "mat_paint", "mat_glass", "mat_rubber", "mat_brass", "mat_road", "mat_al", "mat_al2o3", "mat_brick" };
+	ImGui::BeginTabBar("Object Info");
+	if (ImGui::BeginTabItem("emissivity"))
+	{
+		for (unsigned int i = 0; i < SceneData.objsNum; i++)
+		{
+			// [objVertsNum, matNum, normalTexNum, ambientTexNum, temperature, emiSource]
+			
+			std::string emiRes0, emiRes1, emiRes2;
+			emiRes0 = SceneData.objNames[i] + " from mat";
+			emiRes1 = SceneData.objNames[i] + " from tex";
+			emiRes2 = SceneData.objNames[i] + " from value";
+			const char* er0 = emiRes0.c_str();
+			const char* er1 = emiRes1.c_str();
+			const char* er2 = emiRes2.c_str();
+
+			std::string currentMat;
+			currentMat += materials[SceneData.objsInfo[i * 6 + 1]];
+			currentMat += " for " + SceneData.objNames[i];
+			const char* cm = currentMat.c_str();
+
+			std::string currentTex;
+			currentTex += "Emi tex for " + SceneData.objNames[i];
+			const char* ct = currentTex.c_str();
+			
+			ImGui::RadioButton(er0, &SceneData.objsInfo[i * 6 + 5], 0);
+			ImGui::SameLine();
+			ImGui::RadioButton(er1, &SceneData.objsInfo[i * 6 + 5], 1);
+			ImGui::SameLine();
+			ImGui::RadioButton(er2, &SceneData.objsInfo[i * 6 + 5], 2);
+			if (SceneData.objsInfo[i * 6 + 5] == 0)
+			{
+				ImGui::SliderInt(cm, &SceneData.objsInfo[i * 6 + 1], 0, 9);
+			}
+			else if (SceneData.objsInfo[i * 6 + 5] == 1)
+			{
+				ImGui::SliderInt(ct, &SceneData.objsInfo[i * 6 + 3], -1, 1);
+			}
+			else
+			{
+				ImGui::InputFloat("emi value", &SceneData.emiList[i]);
+			}
+		}
+		ImGui::EndTabItem();
+	}
+	if (ImGui::BeginTabItem("reflect type"))
+	{
+		for (unsigned int i = 0; i < SceneData.objsNum; i++)
+		{
+			// [objVertsNum, matNum, normalTexNum, ambientTexNum, reflectType, emiSource]
+			const char* objName = SceneData.objNames[i].c_str();
+			ImGui::SliderInt(objName, &SceneData.objsInfo[i * 6 + 4], 0, 2);
+
+		}
+		ImGui::EndTabItem();
+	}
+	if (ImGui::BeginTabItem("normal texture"))
+	{
+		for (unsigned int i = 0; i < SceneData.objsNum; i++)
+		{
+			const char* objName = SceneData.objNames[i].c_str();
+			ImGui::SliderInt(objName, &SceneData.objsInfo[i * 6 + 2], -1, 1);
+		}
+		ImGui::EndTabItem();
+	}
+	
+	ImGui::EndTabBar();
+	
+	if (ImGui::Button("Compute"))
+	{
+		initCuda();
+	}
+	std::string fileName;
+	GenFileName(&fileName);
+	const char* fn = fileName.c_str();
+	ImGui::Text("Output to:");
+	ImGui::Text(fn);
+	if (ImGui::Button("Output data"))
+	{
+		AutoOutput();
+	}
+	ImGui::SameLine();
+	std::string frameCount = std::to_string(frame);
+	const char* fc = frameCount.c_str();
+	ImGui::Text(fc);
+	ImGui::Render();
+}
+
+void GenFileName(std::string *s)
+{
+	s->clear();
+	*s += "output/mesh_";
+	if (type == 0)
+	{
+		*s += "emi_and_refl";
+	}
+	else if (type == 1)
+	{
+		*s += "emi_only";
+	}
+	else
+	{
+		*s += "refl_only";
+	}
+	*s += "_cam_";
+	if (camAtRight) *s += "right.ppm";
+	else *s += "left.ppm";
+	return;
+}
 
 // create pixel buffer object in OpenGL
 void createPBO(GLuint *pbo)
@@ -102,10 +236,11 @@ void createTexture(GLuint *textureID, unsigned int size_x, unsigned int size_y)
 	glGenTextures(1, textureID);
 	glBindTexture(GL_TEXTURE_2D, *textureID);
 
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_FLOAT, NULL);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, NULL);
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void prepareTextures()
@@ -126,7 +261,7 @@ void prepareTextures()
 	{
 		for (int w = 0; w < textures[i].width; w++)
 		{
-			for (int h = 0 ; h < textures[i].height; h++)
+			for (int h = 0; h < textures[i].height; h++)
 			{
 				int index = w * textures[i].width + h;
 				// color channel: BGRA in FreeImage bytes, alpha is not used in this project
@@ -142,7 +277,7 @@ void prepareTextures()
 		}
 		offset += textures[i].width * textures[i].height;
 	}
-	//std::cout << h_tex_data[1048575].x << " " << h_tex_data[1048575].y << " " << h_tex_data[1048575].z << std::endl;
+	//std::cout << h_tex_data[1023].x << " " << h_tex_data[1023].y << " " << h_tex_data[1023].z << std::endl;
 	//// Convert to FreeImage format & save to file
 	//FIBITMAP* image = FreeImage_ConvertFromRawBits(textures[0].imgData, textures[0].width, textures[0].height, textures[0].pitch, 32, FI_RGBA_RED_MASK, FI_RGBA_GREEN_MASK, FI_RGBA_BLUE_MASK, false);
 	//FreeImage_Save(FIF_BMP, image, "input/test.bmp", 0);
@@ -150,39 +285,15 @@ void prepareTextures()
 	//FreeImage_Unload(image);
 }
 
-void setObjInfo()
-{
-	std::cout << "---------REFLECT TYPE---------" << std::endl;
-	std::cout << "DIFF = 0, SPEC = 1, REFR = 2"<< std::endl;
-	std::cout << "----------TEX NUMBER----------" << std::endl;
-	std::cout << "tex_mug_normal = 0, tex_table_ambient = 1" << std::endl;
-	std::cout << "If don't have texture, input -1" << std::endl;
-	std::cout << "---------TEMPERATURE----------" << std::endl;
-	std::cout << "In put temperature in centigrade scale" << std::endl;
-	for (unsigned int i = 0; i < SceneData.objsNum; i++)
-	{
-		std::cout << "-------------------------------" << std::endl;
-		std::cout << "Current object name is :";
-		std::cout << SceneData.objNames[i] << std::endl;
-		//std::cout << "The reflect type is:";
-		//std::cin >> SceneData.objsInfo[i * 5 + 1];
-		//std::cout << "The normal texture number is:";
-		//std::cin >> SceneData.objsInfo[i * 5 + 2];
-		//std::cout << "The ambient texture number is:";
-		//std::cin >> SceneData.objsInfo[i * 5 + 3];
-		//std::cout << "The emission texture number is:";
-		//std::cin >> SceneData.objsInfo[i * 5 + 4];
-	}
-}
-
 void initCuda()
 {
+	frame = 0;
 	// all verts in scene
 	cudaMalloc((void**)& scene_verts, SceneData.vertsNum *sizeof(float3));
 	cudaMemcpy(scene_verts, SceneData.verts, SceneData.vertsNum * sizeof(float3), cudaMemcpyHostToDevice);
-	// all objects and info	[objVertsNum, matNum, normalTexNum, ambientTexNum]
-	cudaMalloc((void**)& scene_objs, SceneData.objsNum * 5 * sizeof(int));
-	cudaMemcpy(scene_objs, SceneData.objsInfo, SceneData.objsNum * 5 * sizeof(int), cudaMemcpyHostToDevice);
+	// all objects and info	[objVertsNum, matNum, normalTexNum, ambientTexNum, temperature, emiSource]
+	cudaMalloc((void**)& scene_objs, SceneData.objsNum * 6 * sizeof(int));
+	cudaMemcpy(scene_objs, SceneData.objsInfo, SceneData.objsNum * 6 * sizeof(int), cudaMemcpyHostToDevice);
 	// all uvs at each vert
 	cudaMalloc((void**)& scene_uvs, SceneData.vertsNum * sizeof(float2));
 	cudaMemcpy(scene_uvs, SceneData.uvs, SceneData.vertsNum * sizeof(float2), cudaMemcpyHostToDevice);
@@ -195,6 +306,9 @@ void initCuda()
 	// all pixles for all data
 	cudaMalloc((void**)& d_tex_data, tex_data_size * sizeof(float3));
 	cudaMemcpy(d_tex_data, h_tex_data, tex_data_size * sizeof(float3), cudaMemcpyHostToDevice);
+	// emi value list
+	cudaMalloc((void**)& d_emiList, SceneData.objsNum * sizeof(float));
+	cudaMemcpy(d_emiList, SceneData.emiList, SceneData.objsNum * sizeof(float), cudaMemcpyHostToDevice);
 	// Buffer for Monte Carlo
 	cudaMalloc(&accu, width * height * sizeof(float3));	// register accu buffer, this buffer won't refresh
 	cudaMalloc(&randState, width * height * sizeof(curandState));	// each pixel's random seed per frame
@@ -209,10 +323,10 @@ void runCuda()
 	cudaGraphicsMapResources(1, &resource, 0);
 	cudaGraphicsResourceGetMappedPointer((void**)&result, &num_bytes, resource);
 
-	launch_kernel(result, accu, randState, width, height, frame, camAtRight,
+	launch_kernel(result, accu, randState, width, height, frame, camAtRight, waveNum, 
 		SceneData.vertsNum, scene_verts, SceneData.objsNum, scene_objs,
 		scene_uvs, scene_normals,
-		texNum,d_tex_wh, d_tex_data, type);
+		texNum,d_tex_wh, d_tex_data, type, d_emiList);
 
 	cudaGraphicsUnmapResources(1, &resource, 0);
 }
@@ -223,34 +337,8 @@ void runCuda()
 // so currently it won't be used
 void display()
 {
-	//draw_gui();
+	
 }
-const char* files[] =
-{
-	"output/0_r.bmp",
-	"output/0_l.bmp",
-	"output/1_r.bmp",
-	"output/1_l.bmp",
-	"output/2_r.bmp",
-	"output/2_l.bmp",
-	"output/3_r.bmp",
-	"output/3_l.bmp",
-	"output/4_r.bmp",
-	"output/4_l.bmp",
-	"output/5_r.bmp",
-	"output/5_l.bmp",
-	"output/6_r.bmp",
-	"output/6_l.bmp",
-	"output/7_r.bmp",
-	"output/7_l.bmp",
-	"output/8_r.bmp",
-	"output/8_l.bmp",
-	"output/9_r.bmp",
-	"output/9_l.bmp",
-	"output/10_r.bmp",
-	"output/10_l.bmp",
-};
-
 
 float clamp(float n)
 {
@@ -263,46 +351,27 @@ inline int toInt(float x) { return int(clamp(x) * 255 + .5); }
 int fileNum = 0;
 void AutoOutput()	// output a result when achieve 8000 frame
 {
-	// for txt data, file size should around 8MB for 1280*720 result
+	// for txt data, file size should around 3MB for 640*480 result
 	GLfloat* pixels = new GLfloat[3 * width * height];
 	glGetTexImage(GL_TEXTURE_2D ,0, GL_RGB, GL_FLOAT, pixels);
 
-	//// for bmp image
-	//BYTE* pixels = new BYTE[3 * width * height];
-	//glReadPixels(0, 0, width, height, GL_RGB, GL_BYTE, pixels);
-
 	std::ofstream outfile;
-	std::string  fileName;	// output/wave_?_cam_?.txt
-	fileName += "output/cone_";
-	if (type == 0)
-	{
-		fileName += "emi_and_refl";
-	}
-	else if (type == 1)
-	{
-		fileName += "emi_only";
-	}
-	else
-	{
-		fileName += "refl_only";
-	}
-	fileName += "_cam_";
-	if (camAtRight) fileName += "right.txt";
-	else fileName += "left.txt";
+	std::string fileName;
+	GenFileName(&fileName);
 
 	outfile.open(fileName);
 
-	//// ppm file debug
-	//outfile << "P3\n " << width << " " << height << "\n" << "255\n";
+	// ppm file debug
+	outfile << "P3\n " << width << " " << height << "\n" << "255\n";
 
 	int i = 0;
 	for (int x = 0; x < width * height * 3; x += 3)
 	{
-		outfile << pixels[x] << " ";
+		//outfile << pixels[x] << " ";
 
-		//outfile << toInt(pixels[x]) << " ";
-		//outfile << toInt(pixels[x + 1]) << " ";
-		//outfile << toInt(pixels[x + 2]) << " ";
+		outfile << toInt(pixels[x]) << " ";
+		outfile << toInt(pixels[x + 1]) << " ";
+		outfile << toInt(pixels[x + 2]) << " ";
 
 		i++;
 		if (i == width)
@@ -314,14 +383,8 @@ void AutoOutput()	// output a result when achieve 8000 frame
 
 	std::cout << "Saved file: " << fileName << std::endl;
 
-	//// Convert to FreeImage format & save to file
-	//FIBITMAP* image = FreeImage_ConvertFromRawBits(pixels, width, height, 3 * width, 32, 0x0000FF, 0xFF0000, 0x00FF00, false);
-	//FreeImage_Save(FIF_BMP, image, files[fileNum], 0);
-	//// Free resources
-	//FreeImage_Unload(image);
-
 	fileNum++;
-	if (fileNum >= 6) std::cout << "Output finished!" << std::endl;
+	//if (fileNum >= 6) std::cout << "Output finished!" << std::endl;
 	delete[] pixels;
 	outfile.close();
 }
@@ -339,7 +402,6 @@ void idle()
 	//	AutoOutput();
 	//	if (camAtRight == false) type++;
 	//	camAtRight = !camAtRight;
-	//	frame = 0;
 	//	initCuda();
 	//}
 	//if (type >= 3) return;	// pause the program
@@ -361,6 +423,9 @@ void idle()
 	glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f, 1.0f, 0.0f);
 	glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, 0.0f, 0.0f);
 	glEnd();
+	// unbind
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+	draw_gui();
 
 	glutSwapBuffers();
 }
@@ -398,45 +463,44 @@ void initOpenGl()
 	glLoadIdentity();
 
 	glEnable(GL_DEPTH_TEST);
-	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glClearColor(0.2, 0.2, 0.2, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
 // glut callbacks need to send keyboard and mouse events to imgui
 void keyboard(unsigned char key, int x, int y)
 {
-	//ImGui_ImplGlut_KeyCallback(key);
-	std::cout << "key : " << key << ", x: " << x << ", y: " << y << std::endl;
+	ImGui_ImplGlut_KeyCallback(key);
 }
 // some callback functions here
 void keyboard_up(unsigned char key, int x, int y)
 {
-	//ImGui_ImplGlut_KeyUpCallback(key);
+	ImGui_ImplGlut_KeyUpCallback(key);
 }
 
 void special_up(int key, int x, int y)
 {
-	//ImGui_ImplGlut_SpecialUpCallback(key);
+	ImGui_ImplGlut_SpecialUpCallback(key);
 }
 
 void passive(int x, int y)
 {
-	//ImGui_ImplGlut_PassiveMouseMotionCallback(x, y);
+	ImGui_ImplGlut_PassiveMouseMotionCallback(x, y);
 }
 
 void special(int key, int x, int y)
 {
-	//ImGui_ImplGlut_SpecialCallback(key);
+	ImGui_ImplGlut_SpecialCallback(key);
 }
 
 void motion(int x, int y)
 {
-	//ImGui_ImplGlut_MouseMotionCallback(x, y);
+	ImGui_ImplGlut_MouseMotionCallback(x, y);
 }
 
 void mouse(int button, int state, int x, int y)
 {
-	//ImGui_ImplGlut_MouseButtonCallback(button, state);
+	ImGui_ImplGlut_MouseButtonCallback(button, state);
 }
 
 int main(int argc, char **argv)
@@ -446,7 +510,7 @@ int main(int argc, char **argv)
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
 	glutInitWindowPosition(5, 5);
 	glutInitWindowSize(width, height);
-	int win = glutCreateWindow("Path Tracer");
+	int win = glutCreateWindow("Thermal Path Tracer");
 
 	//Register callback functions with glut. 
 	glutDisplayFunc(display);
@@ -462,27 +526,29 @@ int main(int argc, char **argv)
 
 	
 	initOpenGl();
+	
 	// load scene before init CUDA! Need mesh data for initialize
-	LoadObj("input/BunnyHigh.obj", SceneData);
+	LoadObj("input/scene2.obj", SceneData);
 	// load texture
-	//tex_mug_normal.LoadTex("input/texture/mug_normal.jpg");
-	//textures.push_back(tex_mug_normal);
-	tex_table_ambient.LoadTex("input/texture/wave_tex.jpg");
+	tex_mug_normal.LoadTex("input/texture/mug_normal.jpg");
+	textures.push_back(tex_mug_normal);
+	tex_table_ambient.LoadTex("input/texture/table_ambient.jpg");
 	textures.push_back(tex_table_ambient);
+	//tex_table_ambient.LoadTex("input/texture/test_tex.jpg");
+	//textures.push_back(tex_table_ambient);
 	// set all data to 
 	prepareTextures();
-	setObjInfo();
 	//std::cout << SceneData.verts.size() << std::endl;
-
+	
 	initCuda();
-	//ImGui_ImplGlut_Init(); // initialize the imgui system
 	printGlInfo();
-
+	ImGui_ImplGlut_Init();	// initialize the imgui system
 	//Enter the glut event loop.
 	glutMainLoop();
 	cudaThreadExit();
 	glutDestroyWindow(win);
 
+	// free buffer before close
 	cudaFree(result);
 	cudaFree(accu);
 	cudaFree(randState);
@@ -499,6 +565,8 @@ int main(int argc, char **argv)
 	SceneData.FreeScene();
 	tex_mug_normal.FreeTexture();
 	tex_table_ambient.FreeTexture();
+
+	ImGui_ImplGlut_Shutdown();
 
 	return 0;
 }
