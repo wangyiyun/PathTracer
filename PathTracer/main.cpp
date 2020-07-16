@@ -43,7 +43,7 @@ curandState* randState;
 extern "C" void launch_kernel(float3*, float3*, curandState*, unsigned int, unsigned int, unsigned int, bool, int, 
 	int, float3*, int, int*, float2*, float3*,
 	int, int*, float3*,
-	int, float*);
+	int, float*, float*);
 
 // Auto output
 #define OUTPUT_FRAME_NUM 256
@@ -71,12 +71,15 @@ float3* h_tex_data;	// pixels color of all textures
 // device
 int* d_tex_wh;	//[w0,h0,w1,h1...] size = texNum * 2
 float3* d_tex_data;
+float* d_colorList;
 float* d_emiList;
 
 // func
 void initCuda();
 void AutoOutput();
 void GenFileName(std::string *s);
+
+#define OBJ_INFO_COUNT 7
 
 void draw_gui()
 {
@@ -87,61 +90,69 @@ void draw_gui()
 	{
 		initCuda();
 	}
-	if (ImGui::RadioButton("emi+refl", &type, 0))
-	{
-		initCuda();
-	}
-	ImGui::SameLine();
-	if (ImGui::RadioButton("emi", &type, 1))
-	{
-		initCuda();
-	}
-	ImGui::SameLine();
-	if (ImGui::RadioButton("refl", &type, 2))
-	{
-		initCuda();
-	}
-	const char* materials[] = { "mat_human", "mat_marble", "mat_paint", "mat_glass", "mat_rubber", "mat_brass", "mat_road", "mat_al", "mat_al2o3", "mat_brick" };
 	ImGui::BeginTabBar("Object Info");
-	if (ImGui::BeginTabItem("emissivity"))
+	if (ImGui::BeginTabItem("Color"))
 	{
 		for (unsigned int i = 0; i < SceneData.objsNum; i++)
 		{
 			// [objVertsNum, matNum, normalTexNum, ambientTexNum, temperature, emiSource]
-			
-			std::string emiRes0, emiRes1, emiRes2;
-			emiRes0 = SceneData.objNames[i] + " from mat";
-			emiRes1 = SceneData.objNames[i] + " from tex";
-			emiRes2 = SceneData.objNames[i] + " from value";
-			const char* er0 = emiRes0.c_str();
-			const char* er1 = emiRes1.c_str();
-			const char* er2 = emiRes2.c_str();
-
-			std::string currentMat;
-			currentMat += materials[SceneData.objsInfo[i * 6 + 1]];
-			currentMat += " for " + SceneData.objNames[i];
-			const char* cm = currentMat.c_str();
+			std::string colRes0, colRes1;
+			colRes0 = SceneData.objNames[i] + " from tex";
+			colRes1 = SceneData.objNames[i] + " from value";
+			const char* er0 = colRes0.c_str();
+			const char* er1 = colRes1.c_str();
 
 			std::string currentTex;
-			currentTex += "Emi tex for " + SceneData.objNames[i];
+			currentTex += "Color tex of " + SceneData.objNames[i];
 			const char* ct = currentTex.c_str();
+
+			std::string currentColor;
+			currentColor += "Color of " + SceneData.objNames[i];
+			const char* cc = currentColor.c_str();
 			
-			ImGui::RadioButton(er0, &SceneData.objsInfo[i * 6 + 5], 0);
+			ImGui::RadioButton(er0, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 5], 0);
 			ImGui::SameLine();
-			ImGui::RadioButton(er1, &SceneData.objsInfo[i * 6 + 5], 1);
+			ImGui::RadioButton(er1, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 5], 1);
+			if (SceneData.objsInfo[i * OBJ_INFO_COUNT + 5] == 0)
+			{
+				ImGui::ColorEdit3(cc, SceneData.colorList + i * 3);
+			}
+			else if (SceneData.objsInfo[i * OBJ_INFO_COUNT + 5] == 1)
+			{
+				ImGui::SliderInt(ct, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 3], -1, 1);
+			}
+		}
+		ImGui::EndTabItem();
+	}
+	if (ImGui::BeginTabItem("Emission"))
+	{
+		for (unsigned int i = 0; i < SceneData.objsNum; i++)
+		{
+			// [objVertsNum, matNum, normalTexNum, ambientTexNum, temperature, emiSource]
+			std::string emiRes0, emiRes1;
+			emiRes0 = SceneData.objNames[i] + " from tex";
+			emiRes1 = SceneData.objNames[i] + " from value";
+			const char* er0 = emiRes0.c_str();
+			const char* er1 = emiRes1.c_str();
+
+			std::string currentTex;
+			currentTex += "Emission tex of " + SceneData.objNames[i];
+			const char* ct = currentTex.c_str();
+
+			std::string currentColor;
+			currentColor += "Emission of " + SceneData.objNames[i];
+			const char* cc = currentColor.c_str();
+
+			ImGui::RadioButton(er0, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 6], 0);
 			ImGui::SameLine();
-			ImGui::RadioButton(er2, &SceneData.objsInfo[i * 6 + 5], 2);
-			if (SceneData.objsInfo[i * 6 + 5] == 0)
+			ImGui::RadioButton(er1, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 6], 1);
+			if (SceneData.objsInfo[i * OBJ_INFO_COUNT + 6] == 0)
 			{
-				ImGui::SliderInt(cm, &SceneData.objsInfo[i * 6 + 1], 0, 9);
+				ImGui::ColorEdit3(cc, SceneData.emiList + i * 3);
 			}
-			else if (SceneData.objsInfo[i * 6 + 5] == 1)
+			else if (SceneData.objsInfo[i * OBJ_INFO_COUNT + 6] == 1)
 			{
-				ImGui::SliderInt(ct, &SceneData.objsInfo[i * 6 + 3], -1, 1);
-			}
-			else
-			{
-				ImGui::InputFloat("emi value", &SceneData.emiList[i]);
+				ImGui::SliderInt(ct, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 3], -1, 1);
 			}
 		}
 		ImGui::EndTabItem();
@@ -152,7 +163,7 @@ void draw_gui()
 		{
 			// [objVertsNum, matNum, normalTexNum, ambientTexNum, reflectType, emiSource]
 			const char* objName = SceneData.objNames[i].c_str();
-			ImGui::SliderInt(objName, &SceneData.objsInfo[i * 6 + 4], 0, 2);
+			ImGui::SliderInt(objName, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 4], 0, 2);
 
 		}
 		ImGui::EndTabItem();
@@ -162,7 +173,7 @@ void draw_gui()
 		for (unsigned int i = 0; i < SceneData.objsNum; i++)
 		{
 			const char* objName = SceneData.objNames[i].c_str();
-			ImGui::SliderInt(objName, &SceneData.objsInfo[i * 6 + 2], -1, 1);
+			ImGui::SliderInt(objName, &SceneData.objsInfo[i * OBJ_INFO_COUNT + 2], -1, 1);
 		}
 		ImGui::EndTabItem();
 	}
@@ -292,8 +303,8 @@ void initCuda()
 	cudaMalloc((void**)& scene_verts, SceneData.vertsNum *sizeof(float3));
 	cudaMemcpy(scene_verts, SceneData.verts, SceneData.vertsNum * sizeof(float3), cudaMemcpyHostToDevice);
 	// all objects and info	[objVertsNum, matNum, normalTexNum, ambientTexNum, temperature, emiSource]
-	cudaMalloc((void**)& scene_objs, SceneData.objsNum * 6 * sizeof(int));
-	cudaMemcpy(scene_objs, SceneData.objsInfo, SceneData.objsNum * 6 * sizeof(int), cudaMemcpyHostToDevice);
+	cudaMalloc((void**)& scene_objs, SceneData.objsNum * OBJ_INFO_COUNT * sizeof(int));
+	cudaMemcpy(scene_objs, SceneData.objsInfo, SceneData.objsNum * OBJ_INFO_COUNT * sizeof(int), cudaMemcpyHostToDevice);
 	// all uvs at each vert
 	cudaMalloc((void**)& scene_uvs, SceneData.vertsNum * sizeof(float2));
 	cudaMemcpy(scene_uvs, SceneData.uvs, SceneData.vertsNum * sizeof(float2), cudaMemcpyHostToDevice);
@@ -306,9 +317,12 @@ void initCuda()
 	// all pixles for all data
 	cudaMalloc((void**)& d_tex_data, tex_data_size * sizeof(float3));
 	cudaMemcpy(d_tex_data, h_tex_data, tex_data_size * sizeof(float3), cudaMemcpyHostToDevice);
-	// emi value list
-	cudaMalloc((void**)& d_emiList, SceneData.objsNum * sizeof(float));
-	cudaMemcpy(d_emiList, SceneData.emiList, SceneData.objsNum * sizeof(float), cudaMemcpyHostToDevice);
+	// color list
+	cudaMalloc((void**)& d_colorList, SceneData.objsNum * 3 * sizeof(float));
+	cudaMemcpy(d_colorList, SceneData.colorList, SceneData.objsNum * 3 * sizeof(float), cudaMemcpyHostToDevice);
+	// emi list
+	cudaMalloc((void**)& d_emiList, SceneData.objsNum * 3 * sizeof(float));
+	cudaMemcpy(d_emiList, SceneData.emiList, SceneData.objsNum * 3 * sizeof(float), cudaMemcpyHostToDevice);
 	// Buffer for Monte Carlo
 	cudaMalloc(&accu, width * height * sizeof(float3));	// register accu buffer, this buffer won't refresh
 	cudaMalloc(&randState, width * height * sizeof(curandState));	// each pixel's random seed per frame
@@ -326,7 +340,7 @@ void runCuda()
 	launch_kernel(result, accu, randState, width, height, frame, camAtRight, waveNum, 
 		SceneData.vertsNum, scene_verts, SceneData.objsNum, scene_objs,
 		scene_uvs, scene_normals,
-		texNum,d_tex_wh, d_tex_data, type, d_emiList);
+		texNum,d_tex_wh, d_tex_data, type, d_colorList, d_emiList);
 
 	cudaGraphicsUnmapResources(1, &resource, 0);
 }
@@ -528,7 +542,7 @@ int main(int argc, char **argv)
 	initOpenGl();
 	
 	// load scene before init CUDA! Need mesh data for initialize
-	LoadObj("input/scene2.obj", SceneData);
+	LoadObj("input/scene3.obj", SceneData);
 	// load texture
 	tex_mug_normal.LoadTex("input/texture/mug_normal.jpg");
 	textures.push_back(tex_mug_normal);
@@ -558,6 +572,8 @@ int main(int argc, char **argv)
 	cudaFree(scene_normals);
 	cudaFree(d_tex_wh);
 	cudaFree(d_tex_data);
+	cudaFree(d_colorList);
+	cudaFree(d_emiList);
 
 
 	delete[] h_tex_wh;

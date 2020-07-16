@@ -10,8 +10,11 @@ using namespace std;
 #include <ctime>
 #include <unordered_map>
 
-__device__ const double c = 299792458, k = 138064852e-31, PI = 3.141592653589793238463;
-
+__device__ const double PI = 3.141592653589793238463;
+#define OBJ_INFO_COUNT 7
+#define room_width 300.0f
+#define room_height 300.0f
+#define room_depth 1200.0f
 void checkCUDAError(const char *msg)
 {
 	cudaError_t err = cudaGetLastError();
@@ -48,63 +51,6 @@ __constant__ float3 cam_left = { 100.0f, 150.0f, 1100.0f };
 enum Refl_t { DIFF, SPEC, REFR };
 // geometry type
 enum Geom_t { SPHERE, CONE, TRIANGLE};
-
-// mat name
-#define mat_human 0
-#define mat_marble 1
-#define mat_paint 2
-#define mat_glass 3
-#define mat_rubber 4
-#define mat_brass 5
-#define mat_road 6
-#define mat_al 7
-#define mat_al2o3 8
-#define mat_brick 9
-
-__constant__ float wave[11] = {
-	7.8576538e+02,
-	8.1770000e+02,
-	8.6250000e+02,
-	9.1025000e+02,
-	9.4255000e+02,
-	9.7750000e+02,
-	1.0277500e+03,
-	1.0780000e+03,
-	1.1255000e+03,
-	1.1860000e+03,
-	1.2766667e+03
-};
-
-
-// emiLib[waveNum][matName]
-__constant__ float emiLib[11][10] = {
-	/*
-	human,			marble,			paint,			glass,			rubber,			brass,			road,			al,				al2o3,			brick*/
-	9.9000000e-01,	9.5834758e-01,	8.7470001e-01,	5.0455443e-01,	9.2789246e-01,	1.2250251e-01,	9.6426578e-01,	5.5701898e-01,	4.1617280e-02,	9.7773773e-01,
-	9.9000000e-01,	9.5462609e-01,	8.8365367e-01,	2.8523451e-01,	9.2827028e-01,	1.1789014e-01,	9.7194589e-01,	5.4616836e-01,	4.1602933e-02,	9.7348785e-01,
-	9.9000000e-01,	9.5099592e-01,	9.6279529e-01,	3.8887318e-01,	9.2640468e-01,	1.2078545e-01,	9.6430868e-01,	5.2990503e-01,	4.0821044e-02,	9.6252597e-01,
-	9.9000000e-01,	9.5741246e-01,	8.6909910e-01,	4.2252257e-01,	9.2027605e-01,	1.2892990e-01,	9.4494491e-01,	5.1621436e-01,	4.8036999e-02,	9.4693874e-01,
-	9.9000000e-01,	9.6385735e-01,	8.5889954e-01,	4.4505789e-01,	9.2317386e-01,	1.3452107e-01,	9.5513005e-01,	5.0484414e-01,	1.4619579e-01,	9.3275042e-01,
-	9.9000000e-01,	9.6087765e-01,	9.3344199e-01,	4.7704424e-01,	8.9968776e-01,	1.4311263e-01,	9.5631467e-01,	4.9568769e-01,	2.6974721e-01,	9.1201603e-01,
-	9.9000000e-01,	9.5962251e-01,	9.4205163e-01,	5.6399482e-01,	8.6774658e-01,	1.4932587e-01,	9.5258259e-01,	4.7984848e-01,	4.2480553e-01,	8.7901868e-01,
-	9.9000000e-01,	9.5305901e-01,	9.4627694e-01,	3.2859562e-01,	8.8061124e-01,	1.4229701e-01,	9.1783893e-01,	4.6578646e-01,	4.7823023e-01,	8.5128884e-01,
-	9.9000000e-01,	9.5385122e-01,	9.5199753e-01,	4.2369253e-02,	8.9911606e-01,	1.3455656e-01,	9.1771733e-01,	4.5454008e-01,	5.1389488e-01,	9.0261137e-01,
-	9.9000000e-01,	9.5852822e-01,	9.5649050e-01,	2.7487807e-02,	9.1817783e-01,	1.2604779e-01,	9.1884949e-01,	4.3838823e-01,	5.4462383e-01,	9.3754130e-01,
-	9.9000000e-01,	9.5240096e-01,	9.5069231e-01,	8.9005827e-02,	9.3104627e-01,	1.1098321e-01,	9.5362853e-01,	4.1783501e-01,	5.6727138e-01,	9.7270040e-01
-};
-
-__device__ float BBp (float T, float v)
-{
-	double h = 2 * PI * 105457180e-42;
-	//// 2e8*2*pi*h_bar*c^2
-	//float c1 = 1.1910429524674593e-08;
-	//// 100*2*pi*h_bar*c/k
-	//float c2 = 1.4387773536379256;
-	//// BBp = c1*pow(v,3)/(exp(c2*v/T)-1)
-	//return float(c1 * pow(v, 3) / (exp(c2 * v / T) - 1.0f));
-
-	return 2e8 * (h * c * c * v * v * v) / (exp(100 * h * c * v / k / T) - 1);
-}
 
 struct Ray {
 	float3 origin;
@@ -211,61 +157,13 @@ __device__ float TriangleIntersect(const Ray& ray, float3 vert0, float3 vert1, f
 	return t;
 }
 
-#define room_width 300.0f
-#define room_height 300.0f
-#define room_depth 1200.0f
-__constant__ Sphere spheres[] = {
-	/* cornell box
-	{radius	position												matName		temperature			reflectType*/
-	{1e5f,	{-1e5f, 0.0f, 0.0f},									mat_brick,	20.0f + 273.15f,	DIFF},// left wall
-	{1e5f,	{1e5f + room_width, 0.0f, 0.0f},						mat_brick,	20.0f + 273.15f,	DIFF},// right wall
-	{1e5f,	{0.0f, 0.0f, -1e5f},									mat_brick,	20.0f + 273.15f,	DIFF},// back wall
-	{1e5f,	{0.0f, 0.0f, 1e5f + room_depth},						mat_brick,	20.0f + 273.15f,	DIFF},// front wall
-	{1e5f,	{0.0f, -1e5f, 0.0f},									mat_road,	20.0f + 273.15f,	DIFF},// floor
-	{1e5f,	{0.0f, 1e5f + room_height, 0.0f},						mat_brick,	20.0f + 273.15f,	DIFF},// ceiling  
-	{50.0f,	{200.0f ,50.0f, 700.0f},								mat_al,		72.5f + 273.15f,	DIFF},// sphere 
-	{600.0f,{room_width/2 ,room_height+600.0f-2.0f, room_depth/2},	mat_glass,	100.0f + 273.15f,	DIFF} // lamp 
-};
-
-__constant__ Cone cones[] = {
-	/*
-	theta	tip							axis					matName		temperature			reflectType*/
-	{15,	{100.0f, 80.0f, 500.0f},	{0.0f, -1.0f, 0.0f},	mat_rubber,	37.0f + 273.15f,	DIFF}
-};
-
 __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit, 
 	int vertsNum, float3* scene_verts, int objsNum, int* scene_objs_info,
 	float2* scene_uvs, float3* scene_normals,
-	int texNum, int* tex_wh, float3* tex_data, float* emiList)
+	int texNum, int* tex_wh, float3* tex_data, float* colorList, float* emiList)
 {
 	float d = 1e20;
 	float INF = 1e20;
-
-	//// intersect all spheres in the scene
-	//float spheresNum = sizeof(spheres) / sizeof(Sphere);
-	//for (int i = 0; i < spheresNum; i++)  // for all spheres in scene
-	//{
-	//	// keep track of distance from origin to closest intersection point
-	//	if ((d = spheres[i].intersect(ray)) && d < bestHit.hitDist && d > 0)
-	//	{ 
-	//		bestHit.hitDist = d;
-	//		bestHit.geomtryType = SPHERE;
-	//		bestHit.geomID = i;
-	//	}
-	//}
-
-	//// intersect all cones in the scene
-	//float conesNum = sizeof(cones) / sizeof(Cone);
-	//for (int i = 0; i < conesNum; i++)  // for all cones in scene
-	//{
-	//	// keep track of distance from origin to closest intersection point
-	//	if ((d = cones[i].intersect(ray)) && d < bestHit.hitDist && d > 0)
-	//	{
-	//		bestHit.hitDist = d;
-	//		bestHit.geomtryType = CONE;
-	//		bestHit.geomID = i;
-	//	}
-	//}
 
 	// intersect all triangles in the scene
 	int currentObj = 0;	// current object max vert = scene_objs_info[currentObj]
@@ -283,7 +181,7 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 		if (currentObj + 1 < objsNum)
 		{
 			// move to next obj
-			if (currentVert >= scene_objs_info[(currentObj + 1) * 6]) currentObj++;
+			if (currentVert >= scene_objs_info[(currentObj + 1) * OBJ_INFO_COUNT]) currentObj++;
 		}
 		if ((d = TriangleIntersect(ray, v0, v1, v2, u, v)) && d < bestHit.hitDist && d > 0)
 		{
@@ -294,17 +192,17 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 			float2 uv = w*uv0 + u*uv1 + v*uv2;
 			//bestHit.color = make_float3(uv.x, uv.y, 0);
 			bestHit.reflectType = DIFF;
-			if (scene_objs_info[currentObj * 6 + 4] == 1) bestHit.reflectType = SPEC;
-			else if (scene_objs_info[currentObj * 6 + 4] == 2) bestHit.reflectType = REFR;
+			if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 4] == 1) bestHit.reflectType = SPEC;
+			else if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 4] == 2) bestHit.reflectType = REFR;
 			// do not have a normal texture
-			if (scene_objs_info[currentObj * 6 + 2] == -1)
+			if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 2] == -1)
 			{
 				bestHit.normal = normalize(scene_normals[i]);
 			}
 			else
 			{
 				// find normal tex in all textures
-				int texIndex = scene_objs_info[currentObj * 6 + 2];
+				int texIndex = scene_objs_info[currentObj * OBJ_INFO_COUNT + 2];
 				int texWidth = tex_wh[texIndex * 2];
 				int texHeight = tex_wh[texIndex * 2 + 1];
 				int offset = 0;	// get pixel offset in tex_data
@@ -318,16 +216,18 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 				// map the color in tex_data[offset + u_index*texWidth + v_index] to normal
 				bestHit.normal = normalize(tex_data[offset + v_index * texWidth + u_index] * 2.0f - 1.0f);
 			}
-			// which emi source?
-			// 0: mat, 1: tex, 2: value
-			if (scene_objs_info[currentObj * 6 + 5] == 0)
+			// which color source?
+			// 0: value, 1: tex
+			if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 5] == 0)
 			{
-				bestHit.color = make_float3(1.0f);
+				bestHit.color = make_float3(colorList[currentObj * 3],
+					colorList[currentObj * 3 + 1],
+					colorList[currentObj * 3 + 2]);
 			}
-			else if (scene_objs_info[currentObj * 6 + 5] == 1 && scene_objs_info[currentObj * 6 + 3] != -1)
+			else if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 5] == 1 && scene_objs_info[currentObj * OBJ_INFO_COUNT + 3] != -1)
 			{
 				// find tex in all textures
-				int texIndex = scene_objs_info[currentObj * 6 + 3];
+				int texIndex = scene_objs_info[currentObj * OBJ_INFO_COUNT + 3];
 				int texWidth = tex_wh[texIndex * 2];
 				int texHeight = tex_wh[texIndex * 2 + 1];
 				int offset = 0;	// get pixel offset in tex_data
@@ -341,6 +241,31 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 				// map the color in tex_data[offset + v_index * texWidth + u_index] to emissivity
 				bestHit.color = tex_data[offset + v_index * texWidth + u_index];
 			}
+			// which emi source?
+			// 0: value, 1: tex
+			if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 6] == 0)
+			{
+				bestHit.emission = make_float3(emiList[currentObj * 3],
+					emiList[currentObj * 3 + 1],
+					emiList[currentObj * 3 + 2])*10.0f;
+			}
+			else if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 6] == 1 && scene_objs_info[currentObj * OBJ_INFO_COUNT + 3] != -1)
+			{
+				// find tex in all textures
+				int texIndex = scene_objs_info[currentObj * OBJ_INFO_COUNT + 3];
+				int texWidth = tex_wh[texIndex * 2];
+				int texHeight = tex_wh[texIndex * 2 + 1];
+				int offset = 0;	// get pixel offset in tex_data
+				for (int t = 0; t < texIndex; t++)
+				{
+					offset += tex_wh[t * 2] * tex_wh[t * 2 + 1];
+				}
+				// map current uv(float2) to index in tex_data[]
+				int u_index = uv.x * texWidth;
+				int v_index = uv.y * texHeight;
+				// map the color in tex_data[offset + v_index * texWidth + u_index] to emissivity
+				bestHit.emission = tex_data[offset + v_index * texWidth + u_index];
+			}
 			
 			bestHit.hitDist = d;
 			bestHit.geomtryType = TRIANGLE;
@@ -348,53 +273,13 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 		}
 	}
 	
-
 	// t is distance to closest intersection of ray with all primitives in the scene
 	if (bestHit.hitDist < INF)
 	{
-		float3 hitPostion = ray.origin + ray.direction * bestHit.hitDist;
-		switch (bestHit.geomtryType)
-		{
-		case SPHERE:
-			bestHit.normal = normalize(hitPostion - spheres[bestHit.geomID].position);
-			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0.0f ? bestHit.normal : bestHit.normal * -1.0f;
-			bestHit.reflectType = spheres[bestHit.geomID].reflectType;
-			break;
-		case CONE:
-			float3 cp = hitPostion - cones[bestHit.geomID].tip;
-			bestHit.normal = normalize(cp * dot(cones[bestHit.geomID].axis, cp) / dot(cp, cp) - cones[bestHit.geomID].axis);
-			bestHit.oriNormal = dot(bestHit.normal, ray.direction) < 0.0f ? bestHit.normal : bestHit.normal * -1.0f;
-			bestHit.reflectType = cones[bestHit.geomID].reflectType;
-			break;
-		case TRIANGLE:
-			
-			break;
-		default:
-			break;
-		}
 		return true;
 	}
 	else return false;
 }
-
-// result of radiance:
-// e0+rt0*(e1+rt1*(e2+rt2*(e3...)))
-// save e0 and rt0 in this array
-struct RecursionData
-{
-	float emission;
-	float reflectivity;
-	__device__ void add(float emi, float rt)
-	{
-		emission = emi;
-		reflectivity = rt;
-	}
-	__device__ void init()
-	{
-		emission = 0.0f;
-		reflectivity = 0.0f;
-	}
-};
 
 // radiance function
 // compute path bounces in scene and accumulate returned color from each path sgment
@@ -402,7 +287,7 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum, int w
 	int vertsNum, float3* scene_verts, int objsNum, int* scene_objs_info,
 	float2* scene_uvs, float3* scene_normals,
 	int texNum, int* tex_wh, float3* tex_data,
-	int type, float* emiList) {
+	int type, float* colorList, float* emiList) {
 
 	Hit bestHit;
 	// accumulated color for current pixel
@@ -413,7 +298,7 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum, int w
 	//// hit debug
 	//bestHit.Init();
 	//if (!intersect_scene(ray, bestHit, vertsNum, scene_verts, objsNum, scene_objs_info, scene_uvs, scene_normals,
-	//	texNum, tex_wh, tex_data, emiList))
+	//	texNum, tex_wh, tex_data, colorList))
 	//	return make_float3(0.0f); // if miss, return black
 	//else
 	//{
@@ -431,12 +316,9 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum, int w
 		float rt = 0.0f;
 		// intersect ray with scene
 		if (!intersect_scene(ray, bestHit, vertsNum, scene_verts, objsNum, scene_objs_info, scene_uvs, scene_normals,
-							texNum, tex_wh, tex_data, emiList))
+							texNum, tex_wh, tex_data, colorList, emiList))
 		{
 			// sky color
-			bestHit.color = make_float3(0.0f);
-			bestHit.emission = make_float3(0.8f);
-			accuIntensity += colorMask * bestHit.emission;
 			break; // if miss STOP looping, will influnce the output of recuData since already return 
 		}
 
@@ -483,46 +365,24 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum, int w
 		// ideal refraction (based on smallpt code by Kevin Beason)
 		if (bestHit.reflectType == REFR)
 		{
-
-			bool into = dot(bestHit.normal, bestHit.oriNormal) > 0; // is ray entering or leaving refractive material?
-			float nc = 1.0f;  // Index of Refraction air
-			float nt = 1.5f;  // Index of Refraction glass/water
-			float nnt = into ? nc / nt : nt / nc;  // IOR ratio of refractive materials
-			float ddn = dot(ray.direction, bestHit.oriNormal);
-			float cos2t = 1.0f - nnt * nnt * (1.f - ddn * ddn);
-
-			if (cos2t < 0.0f) // total internal reflection 
-			{
-				bestHit.nextDir = reflect(ray.direction, bestHit.normal); //d = r.dir - 2.0f * n * dot(n, r.dir);
-				hitPosition += bestHit.oriNormal * 0.01f;
-			}
-			else // cos2t > 0
-			{
-				// compute direction of transmission ray
-				float3 tdir = normalize(ray.direction * nnt - bestHit.normal * ((into ? 1 : -1) * (ddn * nnt + sqrtf(cos2t))));
-
-				float R0 = (nt - nc) * (nt - nc) / (nt + nc) * (nt + nc);
-				float c = 1.f - (into ? -ddn : dot(tdir, bestHit.normal));
-				float Re = R0 + (1.f - R0) * c * c * c * c * c;
-				float Tr = 1 - Re; // Transmission
-				float P = .25f + .5f * Re;
-				float RP = Re / P;
-				float TP = Tr / (1.f - P);
-
-				// randomly choose reflection or transmission ray
-				if (curand_uniform(randstate) < 0.25) // reflection ray
-				{
-					colorMask *= RP;
-					bestHit.nextDir = reflect(ray.direction, bestHit.normal);
-					hitPosition += bestHit.oriNormal * 0.01f;
-				}
-				else // transmission ray
-				{
-					colorMask *= TP;
-					bestHit.nextDir = tdir; //r = Ray(x, tdir); 
-					hitPosition += bestHit.oriNormal * 0.0005f; // epsilon must be small to avoid artefacts
+			float nc = 1.0, ng = 1.5; //Refraction index
+			bool inside = dot(bestHit.normal, bestHit.oriNormal) < 0;
+			//Snells Law
+			float eta = inside ? ng / nc : nc / ng, R0 = pow((nc - ng) / (nc + ng), 2), c = abs(dot(ray.direction, bestHit.oriNormal));
+			float k = 1.0 - eta * eta * (1.0 - c * c);
+			if (k < 0)
+				bestHit.nextDir = reflect(ray.direction, bestHit.oriNormal);
+			else {
+				//Shilick's approximation of Fresnel's equation
+				float Re = R0 + (1 - R0) * pow(1 - c, 5);
+				if (curand_uniform(randstate) < Re)
+					bestHit.nextDir = reflect(ray.direction, bestHit.oriNormal);
+				else {
+					bestHit.nextDir = (eta * ray.direction - (eta * dot(bestHit.oriNormal, ray.direction) + sqrt(k)) * bestHit.oriNormal);
 				}
 			}
+			// multiply color to the object
+			colorMask *= bestHit.color;
 		}
 		// set up origin and direction of next path segment
 		ray.origin = hitPosition;
@@ -546,7 +406,7 @@ __global__ void render(float3 *result, float3* accumbuffer, curandState* randSt,
 	int vertsNum, float3* scene_verts, int objsNum, int* scene_objs_info,
 	float2* scene_uvs, float3* scene_normals,
 	int texNum, int* tex_wh, float3* tex_data,
-	int type, float* emiList)
+	int type, float* colorList, float* emiList)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
@@ -588,7 +448,7 @@ __global__ void render(float3 *result, float3* accumbuffer, curandState* randSt,
 		float3 intensity = radiance(Ray(cam.origin, dir), &randState, frameNum, waveNum, index, 
 			vertsNum, scene_verts, objsNum, scene_objs_info, scene_uvs, scene_normals,
 			texNum, tex_wh, tex_data,
-			type, emiList);
+			type, colorList, emiList);
 		pixelColor = intensity;
 
 		accumbuffer[index] += pixelColor;
@@ -606,7 +466,7 @@ extern "C" void launch_kernel(float3* result, float3* accumbuffer, curandState* 
 	int objsNum, int* scene_objs_info,
 	float2* scene_uvs, float3* scene_normals,
 	int texNum, int* tex_wh, float3* tex_data,
-	int type, float* emiList) {
+	int type, float* colorList, float* emiList) {
 
 	//set thread number
 	int tx = 16;
@@ -619,7 +479,7 @@ extern "C" void launch_kernel(float3* result, float3* accumbuffer, curandState* 
 		camAtRight, waveNum,
 		vertsNum, scene_verts, objsNum, scene_objs_info, scene_uvs, scene_normals,
 		texNum, tex_wh, tex_data,
-		type, emiList);
+		type, colorList, emiList);
 
 	cudaThreadSynchronize();
 	checkCUDAError("kernel failed!");

@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 #include "cutil_math.h"
-
+#define OBJ_INFO_COUNT 7
 struct Scene
 {
 	int vertsNum;	// vertices number of the scene, also the number of uvs and normals
@@ -13,6 +13,7 @@ struct Scene
 	float2* uvs;
 	float3* normals;
 	std::vector<std::string> objNames;
+	float* colorList;
 	float* emiList;
 	void FreeScene()
 	{
@@ -20,6 +21,8 @@ struct Scene
 		delete[] objsInfo;
 		delete[] uvs;
 		delete[] normals;
+		delete[] colorList;
+		delete[] emiList;
 	}
 };
 
@@ -88,19 +91,26 @@ bool LoadObj(
 		}
 	}
 	scene.objsNum = temp_object_indices.size();
-	scene.objsInfo = new int[6 * scene.objsNum];
-	scene.emiList = new float[scene.objsNum];
+	scene.objsInfo = new int[OBJ_INFO_COUNT * scene.objsNum];
+	scene.colorList = new float[3 * scene.objsNum];
+	scene.emiList = new float[3 * scene.objsNum];
 	for (unsigned int i = 0; i < scene.objsNum; i++)
 	{
 		// [objVertsNum, matNum, normalTexNum, ambientTexNum, reflectType, emiSource]
-		scene.objsInfo[i * 6] = temp_object_indices[i];	//objVertsNum
-		scene.objsInfo[i * 6 + 1] = 1;	//matNum
-		scene.objsInfo[i * 6 + 2] = -1;	//normalTexNum
-		scene.objsInfo[i * 6 + 3] = -1;	//ambientTexNum
-		scene.objsInfo[i * 6 + 4] = 0;	//reflectType
-		scene.objsInfo[i * 6 + 5] = 0;	//emiSource: mat, tex, value
+		scene.objsInfo[i * OBJ_INFO_COUNT] = temp_object_indices[i];	//objVertsNum
+		scene.objsInfo[i * OBJ_INFO_COUNT + 1] = 1;	//matNum
+		scene.objsInfo[i * OBJ_INFO_COUNT + 2] = -1;	//normalTexNum
+		scene.objsInfo[i * OBJ_INFO_COUNT + 3] = -1;	//ambientTexNum
+		scene.objsInfo[i * OBJ_INFO_COUNT + 4] = 0;	//reflectType
+		scene.objsInfo[i * OBJ_INFO_COUNT + 5] = 0;	//color source
+		scene.objsInfo[i * OBJ_INFO_COUNT + 6] = 0;	//emi source
 
-		scene.emiList[i] = 0.0f;
+		scene.colorList[i * 3] = 0.2f;
+		scene.colorList[i * 3 + 1] = 0.2f;
+		scene.colorList[i * 3 + 2] = 0.2f;
+		scene.emiList[i * 3] = 0.0f;
+		scene.emiList[i * 3 + 1] = 0.0f;
+		scene.emiList[i * 3 + 2] = 0.0f;
 	}
 	
 	scene.vertsNum = vertexIndices.size();
