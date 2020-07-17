@@ -17,4 +17,4 @@ Special thanks to Harry :D
 Result about 1k spp, includes texture, smooth shading and 3 types of reflection
 
 
-![image]https://github.com/wangyiyun/PathTracer/blob/master/PathTracer/output/pt_result.jpg
+![image](https://github.com/wangyiyun/PathTracer/blob/master/PathTracer/output/pt_result.jpg)
