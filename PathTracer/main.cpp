@@ -40,7 +40,7 @@ float3* accu;	// place for accumulate all frame result
 curandState* randState;
 
 // Implement of this function is in kernel.cu
-extern "C" void launch_kernel(float3*, float3*, curandState*, unsigned int, unsigned int, unsigned int, bool, int, 
+extern "C" void launch_kernel(float3*, float3*, curandState*, unsigned int, unsigned int, unsigned int, bool, 
 	int, float3*, int, int*, float2*, float3*,
 	int, int*, float3*,
 	int, float*, float*);
@@ -48,7 +48,6 @@ extern "C" void launch_kernel(float3*, float3*, curandState*, unsigned int, unsi
 // Auto output
 #define OUTPUT_FRAME_NUM 256
 bool camAtRight = true;	// pos of the camera, true for right side, false for left side
-int waveNum = 0;
 int type = 0;	// 0: emi+refl, 1: emi, 2: refl
 
 // host
@@ -80,6 +79,8 @@ void AutoOutput();
 void GenFileName(std::string *s);
 
 #define OBJ_INFO_COUNT 7
+bool cudaPause = true;
+bool guiHide = false;
 
 void draw_gui()
 {
@@ -97,8 +98,8 @@ void draw_gui()
 		{
 			// [objVertsNum, matNum, normalTexNum, ambientTexNum, temperature, emiSource]
 			std::string colRes0, colRes1;
-			colRes0 = SceneData.objNames[i] + " from tex";
-			colRes1 = SceneData.objNames[i] + " from value";
+			colRes0 = SceneData.objNames[i] + " from value";
+			colRes1 = SceneData.objNames[i] + " from tex";
 			const char* er0 = colRes0.c_str();
 			const char* er1 = colRes1.c_str();
 
@@ -130,8 +131,8 @@ void draw_gui()
 		{
 			// [objVertsNum, matNum, normalTexNum, ambientTexNum, temperature, emiSource]
 			std::string emiRes0, emiRes1;
-			emiRes0 = SceneData.objNames[i] + " from tex";
-			emiRes1 = SceneData.objNames[i] + " from value";
+			emiRes0 = SceneData.objNames[i] + " from value";
+			emiRes1 = SceneData.objNames[i] + " from tex";
 			const char* er0 = emiRes0.c_str();
 			const char* er1 = emiRes1.c_str();
 
@@ -182,6 +183,8 @@ void draw_gui()
 	
 	if (ImGui::Button("Compute"))
 	{
+		cudaPause = false;
+		guiHide = true;
 		initCuda();
 	}
 	std::string fileName;
@@ -309,8 +312,8 @@ void initCuda()
 	cudaMalloc((void**)& scene_uvs, SceneData.vertsNum * sizeof(float2));
 	cudaMemcpy(scene_uvs, SceneData.uvs, SceneData.vertsNum * sizeof(float2), cudaMemcpyHostToDevice);
 	// all normals at each vert
-	cudaMalloc((void**)& scene_normals, (SceneData.vertsNum/3) * sizeof(float3));
-	cudaMemcpy(scene_normals, SceneData.normals, (SceneData.vertsNum/3) * sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMalloc((void**)& scene_normals, (SceneData.vertsNum) * sizeof(float3));
+	cudaMemcpy(scene_normals, SceneData.normals, (SceneData.vertsNum) * sizeof(float3), cudaMemcpyHostToDevice);
 	// width and height for each texture
 	cudaMalloc((void**)& d_tex_wh, texNum * 2 * sizeof(int));
 	cudaMemcpy(d_tex_wh, h_tex_wh, texNum * 2 * sizeof(int), cudaMemcpyHostToDevice);
@@ -337,7 +340,7 @@ void runCuda()
 	cudaGraphicsMapResources(1, &resource, 0);
 	cudaGraphicsResourceGetMappedPointer((void**)&result, &num_bytes, resource);
 
-	launch_kernel(result, accu, randState, width, height, frame, camAtRight, waveNum, 
+	launch_kernel(result, accu, randState, width, height, frame, camAtRight,
 		SceneData.vertsNum, scene_verts, SceneData.objsNum, scene_objs,
 		scene_uvs, scene_normals,
 		texNum,d_tex_wh, d_tex_data, type, d_colorList, d_emiList);
@@ -408,8 +411,6 @@ void AutoOutput()	// output a result when achieve 8000 frame
 // which means it runs every frame automatically 
 void idle()
 {
-	frame++;	// accumulate frame number
-
 	////Auto output for all results
 	//if (frame > OUTPUT_FRAME_NUM && type < 3)	// enough sample for current scene
 	//{
@@ -421,7 +422,11 @@ void idle()
 	//if (type >= 3) return;	// pause the program
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);	// clear current display result on the screen
-	runCuda();	// run CUDA program and calculate current frame result
+	if (!cudaPause)
+	{
+		frame++;	// accumulate frame number
+		runCuda();	// run CUDA program and calculate current frame result
+	}
 
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 
@@ -439,7 +444,7 @@ void idle()
 	glEnd();
 	// unbind
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-	draw_gui();
+	if(!guiHide) draw_gui();
 
 	glutSwapBuffers();
 }
@@ -485,6 +490,11 @@ void initOpenGl()
 void keyboard(unsigned char key, int x, int y)
 {
 	ImGui_ImplGlut_KeyCallback(key);
+	if (key == ' ')
+	{
+		guiHide = !guiHide;
+		cudaPause = !cudaPause;
+	}
 }
 // some callback functions here
 void keyboard_up(unsigned char key, int x, int y)
@@ -524,7 +534,7 @@ int main(int argc, char **argv)
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
 	glutInitWindowPosition(5, 5);
 	glutInitWindowSize(width, height);
-	int win = glutCreateWindow("Thermal Path Tracer");
+	int win = glutCreateWindow("Path Tracer");
 
 	//Register callback functions with glut. 
 	glutDisplayFunc(display);

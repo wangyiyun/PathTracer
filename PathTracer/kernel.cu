@@ -197,7 +197,12 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 			// do not have a normal texture
 			if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 2] == -1)
 			{
-				bestHit.normal = normalize(scene_normals[i]);
+				// smooth shading
+				float3 n0 = scene_normals[i * 3];
+				float3 n1 = scene_normals[i * 3 + 1];
+				float3 n2 = scene_normals[i * 3 + 2];
+
+				bestHit.normal = normalize(w * n0 + u * n1 + v * n2);
 			}
 			else
 			{
@@ -247,7 +252,7 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 			{
 				bestHit.emission = make_float3(emiList[currentObj * 3],
 					emiList[currentObj * 3 + 1],
-					emiList[currentObj * 3 + 2])*10.0f;
+					emiList[currentObj * 3 + 2])*15.0f;
 			}
 			else if (scene_objs_info[currentObj * OBJ_INFO_COUNT + 6] == 1 && scene_objs_info[currentObj * OBJ_INFO_COUNT + 3] != -1)
 			{
@@ -283,7 +288,7 @@ __device__ inline bool intersect_scene(const Ray& ray, Hit& bestHit,
 
 // radiance function
 // compute path bounces in scene and accumulate returned color from each path sgment
-__device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum, int waveNum, int index, 
+__device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum, int index, 
 	int vertsNum, float3* scene_verts, int objsNum, int* scene_objs_info,
 	float2* scene_uvs, float3* scene_normals,
 	int texNum, int* tex_wh, float3* tex_data,
@@ -402,7 +407,7 @@ __device__ float3 gammaCorrect(float3 c)
 }
 
 __global__ void render(float3 *result, float3* accumbuffer, curandState* randSt, 
-	int width, int height, int frameNum, int HashedFrameNum, bool camAtRight, int waveNum, 
+	int width, int height, int frameNum, int HashedFrameNum, bool camAtRight, 
 	int vertsNum, float3* scene_verts, int objsNum, int* scene_objs_info,
 	float2* scene_uvs, float3* scene_normals,
 	int texNum, int* tex_wh, float3* tex_data,
@@ -445,7 +450,7 @@ __global__ void render(float3 *result, float3* accumbuffer, curandState* randSt,
 		}
 		float3 dir = normalize(screen - cam.origin);
 		//result[index] = make_float3(dir.x);
-		float3 intensity = radiance(Ray(cam.origin, dir), &randState, frameNum, waveNum, index, 
+		float3 intensity = radiance(Ray(cam.origin, dir), &randState, frameNum, index, 
 			vertsNum, scene_verts, objsNum, scene_objs_info, scene_uvs, scene_normals,
 			texNum, tex_wh, tex_data,
 			type, colorList, emiList);
@@ -461,7 +466,7 @@ __global__ void render(float3 *result, float3* accumbuffer, curandState* randSt,
 
 extern "C" void launch_kernel(float3* result, float3* accumbuffer, curandState* randState, 
 	unsigned int w, unsigned int h, unsigned int frame, 
-	bool camAtRight, int waveNum, 
+	bool camAtRight, 
 	int vertsNum, float3* scene_verts, 
 	int objsNum, int* scene_objs_info,
 	float2* scene_uvs, float3* scene_normals,
@@ -476,7 +481,7 @@ extern "C" void launch_kernel(float3* result, float3* accumbuffer, curandState* 
 	dim3 threads(tx, ty);
 	
 	render <<<blocks, threads >>> (result, accumbuffer, randState, w, h, frame, WangHash(frame), 
-		camAtRight, waveNum,
+		camAtRight,
 		vertsNum, scene_verts, objsNum, scene_objs_info, scene_uvs, scene_normals,
 		texNum, tex_wh, tex_data,
 		type, colorList, emiList);
