@@ -552,7 +552,7 @@ int main(int argc, char **argv)
 	initOpenGl();
 	
 	// load scene before init CUDA! Need mesh data for initialize
-	LoadObj("input/scene3.obj", SceneData);
+	LoadObj("input/scene2.obj", SceneData);
 	// load texture
 	tex_mug_normal.LoadTex("input/texture/mug_normal.jpg");
 	textures.push_back(tex_mug_normal);

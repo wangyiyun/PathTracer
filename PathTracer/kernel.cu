@@ -324,6 +324,9 @@ __device__ float3 radiance(Ray& ray, curandState* randstate, int frameNum, int i
 							texNum, tex_wh, tex_data, colorList, emiList))
 		{
 			// sky color
+			bestHit.color = make_float3(0.0f);
+			bestHit.emission = make_float3(0.8f);
+			accuIntensity += colorMask * bestHit.emission;
 			break; // if miss STOP looping, will influnce the output of recuData since already return 
 		}
 
@@ -438,7 +441,7 @@ __global__ void render(float3 *result, float3* accumbuffer, curandState* randSt,
 		if (camAtRight) camPos = cam_right;
 		else camPos = cam_left;
 		Ray cam(camPos, normalize(make_float3(0.0f, 0.0f, -1.0f)));
-		float3 screen = make_float3(uv.x * width + room_width / 2.0f, -uv.y * height + room_width / 2.0f, 1100.0f - (width / 2.0f) * 1.73205080757f);
+		float3 screen = make_float3(uv.x * width + room_width / 2.0f, -uv.y * height + room_height / 2.0f, 1100.0f - (width / 2.0f) * 1.73205080757f);
 		// screen x offset
 		if (camAtRight)
 		{
